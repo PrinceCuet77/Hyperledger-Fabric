@@ -56,7 +56,12 @@ Security & Access Control
   Do the orderers see the transaction data?
 
 :Answer:
-  No, the orderers only order transactions, they do not open the transactions.
+  Orderers receive endorsed transactions that are submitted from application
+  clients. The endorsed payload contains the chaincode execution results
+  including the ReadSet and WriteSet information. The orderers only validate
+  the submitter's identity and order transactions, they do not open the
+  endorsed transactions.
+
   If you do not want the data to go through the orderers at all, then utilize
   the private data feature of Fabric.  Alternatively, you can hash or encrypt
   the data in the client application before calling chaincode. If you encrypt
@@ -157,7 +162,7 @@ Chaincode (Smart Contracts and Digital Assets)
 
 :Answer:
   Chaincode can be written in any programming language and executed in
-  containers. Currently, Golang, node.js and java chaincode are supported.
+  containers. Currently, Go, Node.js and Java chaincode are supported.
 
 :Question:
   Does the Hyperledger Fabric have native currency?
@@ -198,33 +203,6 @@ Ordering Service
 ..
 
 :Question:
-  **What is the orderer system channel?**
-
-:Answer:
-  The orderer system channel (sometimes called ordering system channel) is the
-  channel the orderer is initially bootstrapped with. It is used to orchestrate
-  channel creation. The orderer system channel defines consortia and the initial
-  configuration for new channels. At channel creation time, the organization
-  definition in the consortium, the ``/Channel`` group's values and policies, as
-  well as the ``/Channel/Orderer`` group's values and policies, are all combined
-  to form the new initial channel definition.
-
-..
-
-:Question:
-  **If I update my application channel, should I update my orderer system
-  channel?**
-
-:Answer:
-  Once an application channel is created, it is managed independently of any
-  other channel (including the orderer system channel). Depending on the
-  modification, the change may or may not be desirable to port to other
-  channels. In general, MSP changes should be synchronized across all channels,
-  while policy changes are more likely to be specific to a particular channel.
-
-..
-
-:Question:
   **Can I have an organization act both in an ordering and application role?**
 
 :Answer:
@@ -246,9 +224,9 @@ Ordering Service
   against raft_ . You can study it to learn more for your own implementation. The ordering service code can be found under
   the `orderer package`_.
 
-.. _consensus package: https://github.com/hyperledger/fabric/blob/{BRANCH}/orderer/consensus/consensus.go
-.. _raft: https://github.com/hyperledger/fabric/tree/{BRANCH}/orderer/consensus/etcdraft
-.. _orderer package: https://github.com/hyperledger/fabric/tree/{BRANCH}/orderer
+.. _consensus package: https://github.com/hyperledger/fabric/blob/release-2.0/orderer/consensus/consensus.go
+.. _raft: https://github.com/hyperledger/fabric/tree/release-2.0/orderer/consensus/etcdraft
+.. _orderer package: https://github.com/hyperledger/fabric/tree/release-2.0/orderer
 
 ..
 
@@ -267,11 +245,8 @@ BFT
   **When is a BFT version of the ordering service going to be available?**
 
 :Answer:
-  No date has been set. We are working towards a release during the 1.x cycle,
-  i.e. it will come with a minor version upgrade in Fabric. Track FAB-33_ for
-  updates.
-
-.. _FAB-33: https://jira.hyperledger.org/browse/FAB-33
+  No date has been set. We are working towards a release during the 2.x cycle,
+  i.e. it will come with a minor version upgrade in Fabric.
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/

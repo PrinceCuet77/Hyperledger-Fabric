@@ -30,6 +30,11 @@ The **discovery service** improves this process by having the peers compute
 the needed information dynamically and present it to the SDK in a consumable
 manner.
 
+Starting with v2.4, the :doc:`Fabric Gateway <gateway>` interacts with service discovery in order to determine
+which peers are required to endorse a transaction, and which orderer nodes to send
+the transaction to.  Consequently, client applications written using the new gateway
+SDKs do not interact directly with service discovery at all.
+
 How service discovery works in Fabric
 -------------------------------------
 
@@ -37,7 +42,7 @@ The application is bootstrapped knowing about a group of peers which are
 trusted by the application developer/administrator to provide authentic responses
 to discovery queries. A good candidate peer to be used by the client application
 is one that is in the same organization. Note that in order for peers to be known
-to the discovery service, they must have an ``EXTERNAL_ENDPOINT`` defined. To see
+to the discovery service, they must have a ``peer.gossip.externalEndpoint`` defined. To see
 how to do this, check out our :doc:`discovery-cli` documentation.
 
 The application issues a configuration query to the discovery service and obtains
@@ -65,7 +70,7 @@ service will then compute a descriptor comprised of two objects:
 The following is an example of a descriptor from the evaluation of a policy of
 ``AND(Org1, Org2)`` where there are two peers in each of the organizations.
 
-.. code-block:: JSON
+.. code-block:: none
 
    Layouts: [
         QuantitiesByGroup: {

@@ -20,7 +20,7 @@ To fork a repository:
 .. image:: ../images/fork.png
    :scale: 50%
 
-- Your browser will automatically take you to the forked repostiory within
+- Your browser will automatically take you to the forked repository within
   your personal GitHub account once the forking process has complete
 
 You can now clone your personal fork to your local machine.
@@ -93,22 +93,22 @@ the GitHub repository. To create a feature branch, perform the following steps:
 
 .. code::
 
-   git checkout -t origin/master
+   git checkout -t origin/main
 
-- Merge the upstream counterpart into your local master
-
-.. code::
-
-   git merge upstream/master
-
-- Update your fork on GitHub with any changes from the upstream master
+- Merge the upstream counterpart into your local main
 
 .. code::
 
-   git push origin master
+   git merge upstream/main
+
+- Update your fork on GitHub with any changes from the upstream main
+
+.. code::
+
+   git push origin main
 
 - You can now checkout a new local feature branch, this ensures you do not diverge
-  the local master branch from its remote counterpart. The feature branch will be
+  the local main branch from its remote counterpart. The feature branch will be
   an exact copy of the branch from which you created it.
 
 .. code::
@@ -117,8 +117,8 @@ the GitHub repository. To create a feature branch, perform the following steps:
 
 Now that you have created a local feature branch, you can perform your updates.
 
-Commiting and Pushing Changes to Your Forked Repository
--------------------------------------------------------
+Committing and Pushing Changes to Your Forked Repository
+--------------------------------------------------------
 
 Once you have completed the work you intend to perform in your local feature branch,
 you can commit this code and push it to your forked repository to save its state.
@@ -145,7 +145,8 @@ Perform the following steps to commit and push your code to your forked reposito
   - one line summary of the work in this commit as title, followed by an empty line
   - in the commit message body, explain why this change is needed, and how you approached it.
     This helps reviewers better understand your code and often speeds up the review process.
-  - link to JIRA item or JIRA number, i.e. FAB-XXXXX
+  - link to GitHub issue (if exists), using syntax like "Resolves #<GitHub issue number>" so that the
+    GitHub issue automatically gets linked and closed when the PR gets merged.
   - (optional) if no new tests are added, how the code is tested
 
 .. code::
@@ -154,7 +155,7 @@ Perform the following steps to commit and push your code to your forked reposito
 
 .. note::
 
-   Hyperledger requires that commits be signed by the commiter.
+   Hyperledger requires that commits be signed by the committer.
    When issuing the `commit` command, specify the `-s` flag to
    automatically add your signature to your commit.
 
@@ -196,7 +197,7 @@ repository from which you created your fork and begin the code review process.
 - You can now choose one of two options for creating your pull request.
   In the green `Create Pull Request` box select the down-arrow to the right of it.
 - You can choose the first option to open your pull request as-is.
-  This will automatically assign the repostiories maintainers as reviewers for
+  This will automatically assign the repositories maintainers as reviewers for
   your pull request.
 - You can choose the second option to open your pull request as a draft.
   Opening your pull request as a draft will not assign any reviewers, but will
@@ -208,7 +209,7 @@ by navigating to the `Checks` tab of the pull request.
 
 .. warning::
 
-   If you bypass the perscribed pull request process and generate a pull request
+   If you bypass the prescribed pull request process and generate a pull request
    from an edit you made using GitHub's editor UI, you must manually add your
    signature to the commit message when the commit is generated in the UI.
 
@@ -254,6 +255,57 @@ remote origin:
 Again, the pull request will be updated accordingly and CI checks
 will be re-triggered.
 
+Cherry-picking your PR to other branches
+----------------------------------------
+
+After your PR is merged into the main branch, you need to consider whether it should be backported to earlier branches.
+If the content is a new feature designated for the next release, obviously backporting is not appropriate. But if it is a fix or
+update to an existing topic, don't forget to cherry-pick the PR back to earlier branches as needed.
+When in doubt, consult the maintainer that merged the PR for advice.
+Both parties should consider the backport and either party can trigger it.
+You can use the GitHub cherry-pick command, or an easier option is to paste the following command as a comment in your PR after it is merged:
+
+.. code::
+
+   @Mergifyio backport release-2.0
+
+Replace ``2.0`` with the branch that you want to backport to. If there are no merge conflicts,
+a new PR is automatically generated in that branch that still requires the normal approval process to be merged.
+Remember to add a comment to the original PR for each branch that you want to backport to.
+
+If there are merge conflicts, use the GitHub ``cherry-pick`` command instead, by providing the ``SHA`` from the commit in the main branch.
+
+- The following example shows how to cherry-pick a commit from the main branch into the release-2.0 branch:
+
+.. code::
+
+  git checkout release-2.0
+
+- If your branch is behind, run the following command to pull in the latest changes and push them to your local branch:
+
+.. code::
+
+  git pull upstream release-2.0
+  git push origin release-2.0
+
+- Create a new local branch to cherry-pick the content to and then cherry-pick the content by providing the SHA from the main branch.
+
+.. code::
+
+  git checkout -b <my2.0branch>
+  git cherry-pick <SHA from main branch>
+
+- Resolve any merge conflicts and then push to your local branch.
+
+.. code::
+
+  git push origin <my2.0branch> 
+
+- Now go to your browser and create a PR off of your local branch to the release-2.0 branch.
+
+Your change has been cherry-picked back to the release-2.0 branch and can be approved and merged following the normal process.
+
+
 Cleaning Up Local And Remote Feature branches
 ---------------------------------------------
 
@@ -272,17 +324,17 @@ Syncing Your Fork With the Upstream Repository
 As your development progresses, invariably new commits will be merged into the original
 project from which your forked repo was generated from. To avoid surprise merge conflicts
 you should integrate these changes into your local repository. To integrate changes
-from the upstream repository, assuming you are working on changes to the master branch,
+from the upstream repository, assuming you are working on changes to the main branch,
 execute the following commands from the root of your repository:
 
 .. code::
 
    git fetch upstream
-   git rebase upstream/master
+   git rebase upstream/main
 
 Syncing your fork only updates your local repository, you will need to push these
 updates to your forked repository to save them using the following command:
 
 .. code::
 
-   git push origin master
+   git push origin main

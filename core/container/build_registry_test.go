@@ -16,9 +16,7 @@ import (
 )
 
 var _ = Describe("BuildRegistry", func() {
-	var (
-		br *container.BuildRegistry
-	)
+	var br *container.BuildRegistry
 
 	BeforeEach(func() {
 		br = &container.BuildRegistry{}
@@ -32,9 +30,7 @@ var _ = Describe("BuildRegistry", func() {
 	})
 
 	When("the ccid is already building", func() {
-		var (
-			initialBS *container.BuildStatus
-		)
+		var initialBS *container.BuildStatus
 
 		BeforeEach(func() {
 			var ok bool
@@ -48,12 +44,28 @@ var _ = Describe("BuildRegistry", func() {
 			Expect(newBS).To(Equal(initialBS))
 		})
 	})
+
+	When("a previous build status had an error", func() {
+		BeforeEach(func() {
+			bs, ok := br.BuildStatus("ccid")
+			Expect(ok).To(BeFalse())
+			Expect(bs).NotTo(BeNil())
+			bs.Notify(fmt.Errorf("fake-error"))
+			Expect(bs.Done()).To(BeClosed())
+			Expect(bs.Err()).To(MatchError(fmt.Errorf("fake-error")))
+		})
+
+		It("can be reset", func() {
+			bs := br.ResetBuildStatus("ccid")
+			Expect(bs).NotTo(BeNil())
+			Expect(bs.Done()).NotTo(BeClosed())
+			Expect(bs.Err()).To(BeNil())
+		})
+	})
 })
 
 var _ = Describe("BuildStatus", func() {
-	var (
-		bs *container.BuildStatus
-	)
+	var bs *container.BuildStatus
 
 	BeforeEach(func() {
 		bs = container.NewBuildStatus()

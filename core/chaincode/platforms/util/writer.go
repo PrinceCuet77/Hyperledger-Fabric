@@ -130,9 +130,11 @@ func WriteFileToPackage(localpath string, packagepath string, tw *tar.Writer) er
 	header.ModTime = zeroTime
 	header.ChangeTime = zeroTime
 	header.Name = packagepath
-	header.Mode = 0100644
+	header.Mode = 0o100644
 	header.Uid = 500
 	header.Gid = 500
+	header.Uname = ""
+	header.Gname = ""
 
 	err = tw.WriteHeader(header)
 	if err != nil {

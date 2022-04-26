@@ -10,10 +10,11 @@ import (
 	"testing"
 
 	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/common/cauthdsl"
+	"github.com/hyperledger/fabric/common/policydsl"
+	"github.com/hyperledger/fabric/core/chaincode/implicitcollection"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMembershipInfoProvider(t *testing.T) {
@@ -23,31 +24,52 @@ func TestMembershipInfoProvider(t *testing.T) {
 		Signature: []byte{1, 2, 3},
 		Data:      []byte{4, 5, 6},
 	}
+	emptyPeerSelfSignedData := protoutil.SignedData{}
 
 	identityDeserializer := func(chainID string) msp.IdentityDeserializer {
 		return &mockDeserializer{}
 	}
 
-	// verify membership provider returns true
-	membershipProvider := NewMembershipInfoProvider(mspID, peerSelfSignedData, identityDeserializer)
+	// verify membership provider pass simple check returns true
+	membershipProvider := NewMembershipInfoProvider(mspID, emptyPeerSelfSignedData, identityDeserializer)
 	res, err := membershipProvider.AmMemberOf("test1", getAccessPolicy([]string{"peer0", "peer1"}))
-	assert.True(t, res)
-	assert.Nil(t, err)
+	require.True(t, res)
+	require.Nil(t, err)
 
-	// verify membership provider returns false
+	// verify membership provider fall back to default access policy evaluation returns false
+	membershipProvider = NewMembershipInfoProvider(mspID, peerSelfSignedData, identityDeserializer)
 	res, err = membershipProvider.AmMemberOf("test1", getAccessPolicy([]string{"peer2", "peer3"}))
-	assert.False(t, res)
-	assert.Nil(t, err)
+	require.False(t, res)
+	require.Nil(t, err)
 
 	// verify membership provider returns false and nil when collection policy config is nil
 	res, err = membershipProvider.AmMemberOf("test1", nil)
-	assert.False(t, res)
-	assert.Nil(t, err)
+	require.False(t, res)
+	require.Nil(t, err)
 
 	// verify membership provider returns false and nil when collection policy config is invalid
 	res, err = membershipProvider.AmMemberOf("test1", getBadAccessPolicy([]string{"signer0"}, 1))
-	assert.False(t, res)
-	assert.Nil(t, err)
+	require.False(t, res)
+	require.Nil(t, err)
+
+	// verify membership provider with empty mspID and fall back to default access policy evaluation returns true
+	membershipProvider = NewMembershipInfoProvider("", peerSelfSignedData, identityDeserializer)
+	res, err = membershipProvider.AmMemberOf("test1", getAccessPolicy([]string{"peer0", "peer1"}))
+	require.True(t, res)
+	require.Nil(t, err)
+
+	// verify membership provider with empty mspID and fall back to default access policy evaluation returns false
+	res, err = membershipProvider.AmMemberOf("test1", getAccessPolicy([]string{"peer2", "peer3"}))
+	require.False(t, res)
+	require.Nil(t, err)
+}
+
+func TestMyImplicitCollectionName(t *testing.T) {
+	require.Equal(
+		t,
+		implicitcollection.NameForOrg("my_org"),
+		NewMembershipInfoProvider("my_org", protoutil.SignedData{}, nil).MyImplicitCollectionName(),
+	)
 }
 
 func getAccessPolicy(signers []string) *peer.CollectionPolicyConfig {
@@ -55,7 +77,7 @@ func getAccessPolicy(signers []string) *peer.CollectionPolicyConfig {
 	for _, signer := range signers {
 		data = append(data, []byte(signer))
 	}
-	policyEnvelope := cauthdsl.Envelope(cauthdsl.Or(cauthdsl.SignedBy(0), cauthdsl.SignedBy(1)), data)
+	policyEnvelope := policydsl.Envelope(policydsl.Or(policydsl.SignedBy(0), policydsl.SignedBy(1)), data)
 	return createCollectionPolicyConfig(policyEnvelope)
 }
 
@@ -65,6 +87,6 @@ func getBadAccessPolicy(signers []string, badIndex int32) *peer.CollectionPolicy
 		data = append(data, []byte(signer))
 	}
 	// use a out of range index to trigger error
-	policyEnvelope := cauthdsl.Envelope(cauthdsl.Or(cauthdsl.SignedBy(0), cauthdsl.SignedBy(badIndex)), data)
+	policyEnvelope := policydsl.Envelope(policydsl.Or(policydsl.SignedBy(0), policydsl.SignedBy(badIndex)), data)
 	return createCollectionPolicyConfig(policyEnvelope)
 }

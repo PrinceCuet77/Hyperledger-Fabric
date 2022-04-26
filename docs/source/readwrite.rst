@@ -37,7 +37,7 @@ the height of a transaction is represented by a tuple (txNumber is the
 height of the transaction within the block). This scheme has many
 advantages over the incremental number scheme - primarily, it enables
 other components such as statedb, transaction simulation and validation
-for making efficient design choices.
+to make efficient design choices.
 
 Following is an illustration of an example read-write set prepared by
 simulation of a hypothetical transaction. For the sake of simplicity, in
@@ -53,9 +53,9 @@ versions.
           <read key="K2", version="1">
         </read-set>
         <write-set>
-          <write key="K1", value="V1"
-          <write key="K3", value="V2"
-          <write key="K4", isDelete="true"
+          <write key="K1", value="V1">
+          <write key="K3", value="V2">
+          <write key="K4", isDelete="true">
         </write-set>
       </NsReadWriteSet>
     <TxReadWriteSet>
@@ -73,12 +73,12 @@ read-write set for updating the versions and the values of the affected
 keys.
 
 In the validation phase, a transaction is considered ``valid`` if the
-version of each key present in the read set of the transaction matches
-the version for the same key in the world state - assuming all the
-preceding ``valid`` transactions (including the preceding transactions
-in the same block) are committed (*committed-state*). An additional
-validation is performed if the read-write set also contains one or more
-query-info.
+version of each key present in the read set of the transaction (from time of simulation)
+matches the current version for the same key, taking into consideration
+``valid`` transactions that have been committed to state from new
+blocks since the transaction was simulated, as well as valid preceding transactions
+in the same block. An additional validation is performed if the read-write set
+also contains one or more query-info.
 
 This additional validation should ensure that no key has been
 inserted/deleted/updated in the super range (i.e., union of the ranges)
@@ -117,14 +117,14 @@ shows the snapshot of the world state against which the transactions are
 simulated and the sequence of read and write activities performed by
 each of these transactions.
 
-::
+.. code-block:: none
 
     World state: (k1,1,v1), (k2,1,v2), (k3,1,v3), (k4,1,v4), (k5,1,v5)
     T1 -> Write(k1, v1'), Write(k2, v2')
-    T2 -> Read(k1), Write(k3, v3')
+    T2 -> Read(k1,1), Write(k3, v3')
     T3 -> Write(k2, v2'')
-    T4 -> Write(k2, v2'''), read(k2)
-    T5 -> Write(k6, v6'), read(k5)
+    T4 -> Write(k2, v2'''), read(k2,1)
+    T5 -> Write(k6, v6'), read(k5,1)
 
 Now, assume that these transactions are ordered in the sequence of
 T1,..,T5 (could be contained in a single block or different blocks)
@@ -133,18 +133,18 @@ T1,..,T5 (could be contained in a single block or different blocks)
    Further, the tuple of keys ``k1`` and ``k2`` in the world state are
    updated to ``(k1,2,v1'), (k2,2,v2')``
 
-2. ``T2`` fails validation because it reads a key, ``k1``, which was
-   modified by a preceding transaction - ``T1``
+2. ``T2`` fails validation because it reads key ``k1`` of version 1 but ``k1``
+   in the world state has progressed to version 2
 
-3. ``T3`` passes the validation because it does not perform a read.
-   Further the tuple of the key, ``k2``, in the world state is updated
-   to ``(k2,3,v2'')``
+3. ``T3`` passes the validation because it does not perform a read.  Further 
+   the tuple of the key, ``k2``, in the world state is updated to 
+   ``(k2,3,v2'')``
 
-4. ``T4`` fails the validation because it reads a key, ``k2``, which was
-   modified by a preceding transaction ``T1``
+4. ``T4`` fails the validation because it reads key ``k2`` of version 1 but
+   ``k2`` in the world state has progressed to version 3
 
-5. ``T5`` passes validation because it reads a key, ``k5,`` which was
-   not modified by any of the preceding transactions
+5. ``T5`` passes validation because it reads a key, ``k5``, which is still on
+   version 1
 
 **Note**: Transactions with multiple read-write sets are not yet supported.
 

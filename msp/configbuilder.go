@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/IBM/idemix"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric/bccsp"
@@ -137,16 +138,15 @@ func SetupBCCSPKeystoreConfig(bccspConfig *factory.FactoryOpts, keystoreDir stri
 		bccspConfig = factory.GetDefaultOpts()
 	}
 
-	if bccspConfig.ProviderName == "SW" || bccspConfig.SwOpts != nil {
-		if bccspConfig.SwOpts == nil {
-			bccspConfig.SwOpts = factory.GetDefaultOpts().SwOpts
+	if bccspConfig.Default == "SW" || bccspConfig.SW != nil {
+		if bccspConfig.SW == nil {
+			bccspConfig.SW = factory.GetDefaultOpts().SW
 		}
 
 		// Only override the KeyStorePath if it was left empty
-		if bccspConfig.SwOpts.FileKeystore == nil ||
-			bccspConfig.SwOpts.FileKeystore.KeyStorePath == "" {
-			bccspConfig.SwOpts.Ephemeral = false
-			bccspConfig.SwOpts.FileKeystore = &factory.FileKeystoreOpts{KeyStorePath: keystoreDir}
+		if bccspConfig.SW.FileKeystore == nil ||
+			bccspConfig.SW.FileKeystore.KeyStorePath == "" {
+			bccspConfig.SW.FileKeystore = &factory.FileKeystoreOpts{KeyStorePath: keystoreDir}
 		}
 	}
 
@@ -161,7 +161,7 @@ func GetLocalMspConfigWithType(dir string, bccspConfig *factory.FactoryOpts, ID,
 	case ProviderTypeToString(FABRIC):
 		return GetLocalMspConfig(dir, bccspConfig, ID)
 	case ProviderTypeToString(IDEMIX):
-		return GetIdemixMspConfig(dir, ID)
+		return idemix.GetIdemixMspConfig(dir, ID)
 	default:
 		return nil, errors.Errorf("unknown MSP type '%s'", mspType)
 	}
@@ -199,7 +199,7 @@ func GetVerifyingMspConfig(dir, ID, mspType string) (*msp.MSPConfig, error) {
 	case ProviderTypeToString(FABRIC):
 		return getMspConfig(dir, ID, nil)
 	case ProviderTypeToString(IDEMIX):
-		return GetIdemixMspConfig(dir, ID)
+		return idemix.GetIdemixMspConfig(dir, ID)
 	default:
 		return nil, errors.Errorf("unknown MSP type '%s'", mspType)
 	}
@@ -355,14 +355,20 @@ func getMspConfig(dir string, ID string, sigid *msp.SigningIdentityInfo) (*msp.M
 		FabricNodeOus:                 nodeOUs,
 	}
 
-	fmpsjs, _ := proto.Marshal(fmspconf)
+	fmpsjs, err := proto.Marshal(fmspconf)
+	if err != nil {
+		return nil, err
+	}
 
-	mspconf := &msp.MSPConfig{Config: fmpsjs, Type: int32(FABRIC)}
-
-	return mspconf, nil
+	return &msp.MSPConfig{Config: fmpsjs, Type: int32(FABRIC)}, nil
 }
 
 func loadCertificateAt(dir, certificatePath string, ouType string) []byte {
+	if certificatePath == "" {
+		mspLogger.Debugf("Specific certificate for %s is not configured", ouType)
+		return nil
+	}
+
 	f := filepath.Join(dir, certificatePath)
 	raw, err := readFile(f)
 	if err != nil {
@@ -372,48 +378,4 @@ func loadCertificateAt(dir, certificatePath string, ouType string) []byte {
 	}
 
 	return nil
-}
-
-const (
-	IdemixConfigDirMsp                  = "msp"
-	IdemixConfigDirUser                 = "user"
-	IdemixConfigFileIssuerPublicKey     = "IssuerPublicKey"
-	IdemixConfigFileRevocationPublicKey = "RevocationPublicKey"
-	IdemixConfigFileSigner              = "SignerConfig"
-)
-
-// GetIdemixMspConfig returns the configuration for the Idemix MSP
-func GetIdemixMspConfig(dir string, ID string) (*msp.MSPConfig, error) {
-	ipkBytes, err := readFile(filepath.Join(dir, IdemixConfigDirMsp, IdemixConfigFileIssuerPublicKey))
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read issuer public key file")
-	}
-
-	revocationPkBytes, err := readFile(filepath.Join(dir, IdemixConfigDirMsp, IdemixConfigFileRevocationPublicKey))
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read revocation public key file")
-	}
-
-	idemixConfig := &msp.IdemixMSPConfig{
-		Name:         ID,
-		Ipk:          ipkBytes,
-		RevocationPk: revocationPkBytes,
-	}
-
-	signerBytes, err := readFile(filepath.Join(dir, IdemixConfigDirUser, IdemixConfigFileSigner))
-	if err == nil {
-		signerConfig := &msp.IdemixMSPSignerConfig{}
-		err = proto.Unmarshal(signerBytes, signerConfig)
-		if err != nil {
-			return nil, err
-		}
-		idemixConfig.Signer = signerConfig
-	}
-
-	confBytes, err := proto.Marshal(idemixConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return &msp.MSPConfig{Config: confBytes, Type: int32(IDEMIX)}, nil
 }

@@ -24,7 +24,7 @@ import (
 	"github.com/hyperledger/fabric/core/common/sysccprovider"
 	"github.com/hyperledger/fabric/core/common/validation"
 	"github.com/hyperledger/fabric/core/ledger"
-	ledgerUtil "github.com/hyperledger/fabric/core/ledger/util"
+	"github.com/hyperledger/fabric/internal/pkg/txflags"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -63,7 +63,7 @@ type ChannelResources interface {
 // and vscc execution, in order to increase
 // testability of TxValidator
 type vsccValidator interface {
-	VSCCValidateTx(seq int, payload *common.Payload, envBytes []byte, block *common.Block) (error, peer.TxValidationCode)
+	VSCCValidateTx(seq int, payload *common.Payload, envBytes []byte, block *common.Block) (peer.TxValidationCode, error)
 }
 
 // implementation of Validator interface, keeps
@@ -140,7 +140,7 @@ func (v *TxValidator) Validate(block *common.Block) error {
 	logger.Debugf("[%s] START Block Validation for block [%d]", v.ChannelID, block.Header.Number)
 
 	// Initialize trans as not_validated here, then set invalidation reason code upon invalidation below
-	txsfltr := ledgerUtil.NewTxValidationFlags(len(block.Data.Data))
+	txsfltr := txflags.New(len(block.Data.Data))
 	// txsChaincodeNames records all the invoked chaincodes by tx in a block
 	txsChaincodeNames := make(map[int]*sysccprovider.ChaincodeInstance)
 	// upgradedChaincodes records all the chaincodes that are upgraded in a block
@@ -238,7 +238,7 @@ func (v *TxValidator) Validate(block *common.Block) error {
 
 // allValidated returns error if some of the validation flags have not been set
 // during validation
-func (v *TxValidator) allValidated(txsfltr ledgerUtil.TxValidationFlags, block *common.Block) error {
+func (v *TxValidator) allValidated(txsfltr txflags.ValidationFlags, block *common.Block) error {
 	for id, f := range txsfltr {
 		if peer.TxValidationCode(f) == peer.TxValidationCode_NOT_VALIDATED {
 			return errors.Errorf("transaction %d in block %d has skipped validation", id, block.Header.Number)
@@ -248,7 +248,7 @@ func (v *TxValidator) allValidated(txsfltr ledgerUtil.TxValidationFlags, block *
 	return nil
 }
 
-func markTXIdDuplicates(txids []string, txsfltr ledgerUtil.TxValidationFlags) {
+func markTXIdDuplicates(txids []string, txsfltr txflags.ValidationFlags) {
 	txidMap := make(map[string]struct{})
 
 	for id, txid := range txids {
@@ -344,7 +344,7 @@ func (v *TxValidator) validateTx(req *blockValidationRequest, results chan<- *bl
 
 			// Validate tx with vscc and policy
 			logger.Debug("Validating transaction vscc tx validate")
-			err, cde := v.Vscc.VSCCValidateTx(tIdx, payload, d, block)
+			cde, err := v.Vscc.VSCCValidateTx(tIdx, payload, d, block)
 			if err != nil {
 				logger.Errorf("VSCCValidateTx for transaction txId = %s returned error: %s", txID, err)
 				switch err.(type) {
@@ -448,34 +448,28 @@ func (v *TxValidator) validateTx(req *blockValidationRequest, results chan<- *bl
 // the function returns nil if it has ensured that there is no such duplicate, such
 // that its consumer can proceed with the transaction processing
 func (v *TxValidator) checkTxIdDupsLedger(tIdx int, chdr *common.ChannelHeader, ldgr ledger.PeerLedger) *blockValidationResult {
-
 	// Retrieve the transaction identifier of the input header
 	txID := chdr.TxId
 
 	// Look for a transaction with the same identifier inside the ledger
-	_, err := ldgr.GetTransactionByID(txID)
-
-	switch err.(type) {
-	case nil:
-		// invalid case, returned error is nil. It means that there is already a tx in the ledger with the same id
-		logger.Error("Duplicate transaction found, ", txID, ", skipping")
-		return &blockValidationResult{
-			tIdx:           tIdx,
-			validationCode: peer.TxValidationCode_DUPLICATE_TXID,
-		}
-	case ledger.NotFoundInIndexErr:
-		// valid case, returned error is of type NotFoundInIndexErr.
-		// It means that no tx with the same id is found in the ledger
-		return nil
-	default:
-		// invalid case, returned error is not of type NotFoundInIndexErr.
-		// It means that we could not verify whether a tx with the supplied id is in the ledger
+	exists, err := ldgr.TxIDExists(txID)
+	if err != nil {
 		logger.Errorf("Ledger failure while attempting to detect duplicate status for txid %s: %s", txID, err)
 		return &blockValidationResult{
 			tIdx: tIdx,
 			err:  err,
 		}
 	}
+
+	if exists {
+		logger.Error("Duplicate transaction found, ", txID, ", skipping")
+		return &blockValidationResult{
+			tIdx:           tIdx,
+			validationCode: peer.TxValidationCode_DUPLICATE_TXID,
+		}
+	}
+
+	return nil
 }
 
 // generateCCKey generates a unique identifier for chaincode in specific channel
@@ -484,7 +478,7 @@ func (v *TxValidator) generateCCKey(ccName, chainID string) string {
 }
 
 // invalidTXsForUpgradeCC invalid all txs that should be invalided because of chaincode upgrade txs
-func (v *TxValidator) invalidTXsForUpgradeCC(txsChaincodeNames map[int]*sysccprovider.ChaincodeInstance, txsUpgradedChaincodes map[int]*sysccprovider.ChaincodeInstance, txsfltr ledgerUtil.TxValidationFlags) {
+func (v *TxValidator) invalidTXsForUpgradeCC(txsChaincodeNames map[int]*sysccprovider.ChaincodeInstance, txsUpgradedChaincodes map[int]*sysccprovider.ChaincodeInstance, txsfltr txflags.ValidationFlags) {
 	if len(txsUpgradedChaincodes) == 0 {
 		return
 	}

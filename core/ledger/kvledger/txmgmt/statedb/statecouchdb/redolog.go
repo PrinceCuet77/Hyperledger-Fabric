@@ -1,5 +1,6 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
+
 SPDX-License-Identifier: Apache-2.0
 */
 
@@ -10,17 +11,17 @@ import (
 	"encoding/gob"
 
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
+	"github.com/hyperledger/fabric/core/ledger/internal/version"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/statedb"
-	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/version"
 )
 
-var redologKeyPrefix = []byte{byte(0)}
+var redoLogKey = []byte{byte(0)}
 
 type redoLoggerProvider struct {
 	leveldbProvider *leveldbhelper.Provider
 }
+
 type redoLogger struct {
-	dbName   string
 	dbHandle *leveldbhelper.DBHandle
 }
 
@@ -48,25 +49,19 @@ func (p *redoLoggerProvider) close() {
 }
 
 func (l *redoLogger) persist(r *redoRecord) error {
-	k := encodeRedologKey(l.dbName)
 	v, err := encodeRedologVal(r)
 	if err != nil {
 		return err
 	}
-	return l.dbHandle.Put(k, v, true)
+	return l.dbHandle.Put(redoLogKey, v, true)
 }
 
 func (l *redoLogger) load() (*redoRecord, error) {
-	k := encodeRedologKey(l.dbName)
-	v, err := l.dbHandle.Get(k)
+	v, err := l.dbHandle.Get(redoLogKey)
 	if err != nil || v == nil {
 		return nil, err
 	}
 	return decodeRedologVal(v)
-}
-
-func encodeRedologKey(dbName string) []byte {
-	return append(redologKeyPrefix, []byte(dbName)...)
 }
 
 func encodeRedologVal(r *redoRecord) ([]byte, error) {

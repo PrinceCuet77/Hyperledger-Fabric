@@ -16,8 +16,8 @@ import (
 	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
 	protopeer "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/core/ledger"
-	lgrutil "github.com/hyperledger/fabric/core/ledger/util"
-	"github.com/stretchr/testify/assert"
+	"github.com/hyperledger/fabric/internal/pkg/txflags"
+	"github.com/stretchr/testify/require"
 )
 
 // verifier provides functions that help tests with less verbose code for querying the ledger
@@ -25,18 +25,32 @@ import (
 // For the straight forward functions, tests can call them directly on the ledger
 type verifier struct {
 	lgr    ledger.PeerLedger
-	assert *assert.Assertions
+	assert *require.Assertions
 	t      *testing.T
 }
 
 func newVerifier(lgr ledger.PeerLedger, t *testing.T) *verifier {
-	return &verifier{lgr, assert.New(t), t}
+	return &verifier{lgr, require.New(t), t}
 }
 
 func (v *verifier) verifyLedgerHeight(expectedHt uint64) {
 	info, err := v.lgr.GetBlockchainInfo()
 	v.assert.NoError(err)
 	v.assert.Equal(expectedHt, info.Height)
+}
+
+func (v *verifier) verifyBlockchainInfo(expectedBCInfo *common.BlockchainInfo) {
+	info, err := v.lgr.GetBlockchainInfo()
+	v.assert.NoError(err)
+	v.assert.True(proto.Equal(expectedBCInfo, info))
+}
+
+func (v *verifier) verifyTXIDExists(txIDs ...string) {
+	for _, txID := range txIDs {
+		exists, err := v.lgr.TxIDExists(txID)
+		v.assert.NoError(err)
+		v.assert.True(exists)
+	}
 }
 
 func (v *verifier) verifyPubState(ns, key string, expectedVal string) {
@@ -51,6 +65,15 @@ func (v *verifier) verifyPubState(ns, key string, expectedVal string) {
 		expectedValBytes = []byte(expectedVal)
 	}
 	v.assert.Equal(expectedValBytes, committedVal)
+}
+
+func (v *verifier) verifyPvtdataHashState(ns, coll, key string, expectedValHash []byte) {
+	qe, err := v.lgr.NewQueryExecutor()
+	v.assert.NoError(err)
+	defer qe.Done()
+	committedValHash, err := qe.GetPrivateDataHash(ns, coll, key)
+	v.assert.NoError(err)
+	v.assert.Equal(expectedValHash, committedValHash)
 }
 
 func (v *verifier) verifyPvtState(ns, coll, key string, expectedVal string) {
@@ -88,6 +111,16 @@ func (v *verifier) verifyBlockAndPvtData(blockNum uint64, filter ledger.PvtNsCol
 	v.assert.NoError(err)
 	v.t.Logf("Retrieved Block = %s, pvtdata = %s", spew.Sdump(out.Block), spew.Sdump(out.PvtData))
 	verifyLogic(&retrievedBlockAndPvtdata{out, v.assert})
+}
+
+func (v *verifier) verifyInPvtdataStore(blockNum uint64, filter ledger.PvtNsCollFilter, expectedPvtdata []*ledger.TxPvtData) {
+	retrievedPvtdata, err := v.lgr.GetPvtDataByNum(blockNum, filter)
+	v.assert.NoError(err)
+	v.assert.Equal(len(expectedPvtdata), len(retrievedPvtdata))
+	for i := range expectedPvtdata {
+		v.assert.Equal(expectedPvtdata[i].SeqInBlock, retrievedPvtdata[i].SeqInBlock)
+		v.assert.True(proto.Equal(expectedPvtdata[i].WriteSet, retrievedPvtdata[i].WriteSet))
+	}
 }
 
 func (v *verifier) verifyBlockAndPvtDataSameAs(blockNum uint64, expectedOut *ledger.BlockAndPvtData) {
@@ -135,6 +168,24 @@ func (v *verifier) verifyHistory(ns, key string, expectedVals []string) {
 	v.assert.Equal(expectedVals, historyValues)
 }
 
+func (v *verifier) verifyCommitHashExists() {
+	bcInfo, err := v.lgr.GetBlockchainInfo()
+	v.assert.NoError(err)
+	b, err := v.lgr.GetPvtDataAndBlockByNum(bcInfo.Height-1, nil)
+	v.assert.NoError(err)
+	r := &retrievedBlockAndPvtdata{BlockAndPvtData: b, assert: v.assert}
+	r.containsCommitHash()
+}
+
+func (v *verifier) verifyCommitHashNotExists() {
+	bcInfo, err := v.lgr.GetBlockchainInfo()
+	v.assert.NoError(err)
+	b, err := v.lgr.GetPvtDataAndBlockByNum(bcInfo.Height-1, nil)
+	v.assert.NoError(err)
+	r := &retrievedBlockAndPvtdata{BlockAndPvtData: b, assert: v.assert}
+	r.notContainCommitHash()
+}
+
 ////////////  structs used by verifier  //////////////////////////////////////////////////////////////
 type expectedCollConfInfo struct {
 	committingBlockNum uint64
@@ -143,7 +194,7 @@ type expectedCollConfInfo struct {
 
 type retrievedBlockAndPvtdata struct {
 	*ledger.BlockAndPvtData
-	assert *assert.Assertions
+	assert *require.Assertions
 }
 
 func (r *retrievedBlockAndPvtdata) sameAs(expectedBlockAndPvtdata *ledger.BlockAndPvtData) {
@@ -200,25 +251,19 @@ func (r *retrievedBlockAndPvtdata) sameMetadata(expectedBlock *common.Block) {
 	expectedMetadata := expectedBlock.Metadata.Metadata
 	r.assert.Equal(len(expectedMetadata), len(retrievedMetadata))
 	for i := 0; i < len(expectedMetadata); i++ {
+		if i == int(common.BlockMetadataIndex_COMMIT_HASH) {
+			// in order to compare the exact hash value, we need to duplicate the
+			// production code in this test too, so skipping this match
+			continue
+		}
 		if len(expectedMetadata[i])+len(retrievedMetadata[i]) != 0 {
-			if i != int(common.BlockMetadataIndex_COMMIT_HASH) {
-				r.assert.Equal(expectedMetadata[i], retrievedMetadata[i])
-			} else {
-				// in order to compare the exact hash value, we need to duplicate the
-				// production code in this test too (which is not recommended).
-				commitHash := &common.Metadata{}
-				err := proto.Unmarshal(retrievedMetadata[common.BlockMetadataIndex_COMMIT_HASH],
-					commitHash)
-				r.assert.NoError(err)
-				r.assert.Equal(len(commitHash.Value), 32)
-			}
+			r.assert.Equal(expectedMetadata[i], retrievedMetadata[i])
 		}
 	}
 }
 
 func (r *retrievedBlockAndPvtdata) containsValidationCode(txSeq int, validationCode protopeer.TxValidationCode) {
-	var txFilter lgrutil.TxValidationFlags
-	txFilter = r.BlockAndPvtData.Block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER]
+	txFilter := txflags.ValidationFlags(r.BlockAndPvtData.Block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER])
 	r.assert.Equal(validationCode, txFilter.Flag(txSeq))
 }
 
@@ -229,4 +274,21 @@ func (r *retrievedBlockAndPvtdata) samePvtdata(expectedPvtdata map[uint64]*ledge
 		r.assert.Equal(pvtData.SeqInBlock, actualPvtData.SeqInBlock)
 		r.assert.True(proto.Equal(pvtData.WriteSet, actualPvtData.WriteSet))
 	}
+}
+
+func (r *retrievedBlockAndPvtdata) containsCommitHash() {
+	commitHash := &common.Metadata{}
+	spew.Dump(r.Block.Metadata)
+	err := proto.Unmarshal(
+		r.Block.Metadata.Metadata[common.BlockMetadataIndex_COMMIT_HASH],
+		commitHash,
+	)
+	r.assert.NoError(err)
+	r.assert.Equal(len(commitHash.Value), 32)
+}
+
+func (r *retrievedBlockAndPvtdata) notContainCommitHash() {
+	exists := len(r.Block.Metadata.Metadata) >= int(common.BlockMetadataIndex_COMMIT_HASH)+1 &&
+		len(r.Block.Metadata.Metadata[common.BlockMetadataIndex_COMMIT_HASH]) > 0
+	r.assert.False(exists)
 }

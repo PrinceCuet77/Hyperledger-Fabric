@@ -50,7 +50,7 @@ func CreateNonce() ([]byte, error) {
 }
 
 // UnmarshalEnvelopeOfType unmarshals an envelope of the specified type,
-// including unmarshaling the payload data
+// including unmarshalling the payload data
 func UnmarshalEnvelopeOfType(envelope *cb.Envelope, headerType cb.HeaderType, message proto.Message) (*cb.ChannelHeader, error) {
 	payload, err := UnmarshalPayload(envelope.Payload)
 	if err != nil {
@@ -71,7 +71,7 @@ func UnmarshalEnvelopeOfType(envelope *cb.Envelope, headerType cb.HeaderType, me
 	}
 
 	err = proto.Unmarshal(payload.Data, message)
-	err = errors.Wrapf(err, "error unmarshaling message for type %s", headerType)
+	err = errors.Wrapf(err, "error unmarshalling message for type %s", headerType)
 	return chdr, err
 }
 
@@ -212,6 +212,10 @@ func IsConfigBlock(block *cb.Block) bool {
 
 // ChannelHeader returns the *cb.ChannelHeader for a given *cb.Envelope.
 func ChannelHeader(env *cb.Envelope) (*cb.ChannelHeader, error) {
+	if env == nil {
+		return nil, errors.New("Invalid envelope payload. can't be nil")
+	}
+
 	envPayload, err := UnmarshalPayload(env.Payload)
 	if err != nil {
 		return nil, err
@@ -227,7 +231,7 @@ func ChannelHeader(env *cb.Envelope) (*cb.ChannelHeader, error) {
 
 	chdr, err := UnmarshalChannelHeader(envPayload.Header.ChannelHeader)
 	if err != nil {
-		return nil, errors.WithMessage(err, "error unmarshaling channel header")
+		return nil, errors.WithMessage(err, "error unmarshalling channel header")
 	}
 
 	return chdr, nil

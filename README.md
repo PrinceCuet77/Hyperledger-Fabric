@@ -1,16 +1,13 @@
-# Hyperledger Fabric [![join the chat][rocketchat-image]][rocketchat-url]
+# Hyperledger Fabric
 
-[rocketchat-url]: https://chat.hyperledger.org/channel/fabric
-[rocketchat-image]: https://open.rocket.chat/images/join-chat.svg
-
-[![Build Status](https://dev.azure.com/Hyperledger/Fabric/_apis/build/status/Merge?branchName=master)](https://dev.azure.com/Hyperledger/Fabric/_build/latest?definitionId=51&branchName=master)
+[![Build Status](https://dev.azure.com/Hyperledger/Fabric/_apis/build/status/Merge?branchName=main)](https://dev.azure.com/Hyperledger/Fabric/_build/latest?definitionId=51&branchName=main)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/955/badge)](https://bestpractices.coreinfrastructure.org/projects/955)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hyperledger/fabric)](https://goreportcard.com/report/github.com/hyperledger/fabric)
 [![GoDoc](https://godoc.org/github.com/hyperledger/fabric?status.svg)](https://godoc.org/github.com/hyperledger/fabric)
-[![Documentation Status](https://readthedocs.org/projects/hyperledger-fabric/badge/?version=master)](http://hyperledger-fabric.readthedocs.io/en/master/?badge=master)
+[![Documentation Status](https://readthedocs.org/projects/hyperledger-fabric/badge/?version=latest)](http://hyperledger-fabric.readthedocs.io/en/latest)
 
-This project is an _Active_ Hyperledger project. For more information on the history of this project see the [Fabric wiki page](https://wiki.hyperledger.org/display/fabric). Information on what _Active_ entails can be found in
-the [Hyperledger Project Lifecycle document](https://wiki.hyperledger.org/display/HYP/Project+Lifecycle).
+This project is a _Graduated_ Hyperledger project. For more information on the history of this project see the [Fabric wiki page](https://wiki.hyperledger.org/display/fabric). Information on what _Graduated_ entails can be found in
+the [Hyperledger Project Lifecycle document](https://tsc.hyperledger.org/project-lifecycle.html).
 Hyperledger Fabric is a platform for distributed ledger solutions, underpinned
 by a modular architecture delivering high degrees of confidentiality,
 resiliency, flexibility and scalability. It is designed to support pluggable
@@ -24,57 +21,38 @@ open source architecture; Hyperledger Fabric is your starting point.
 
 ## Releases
 
-- [v2.0.1 - February 26, 2020](https://github.com/hyperledger/fabric/releases/tag/v2.0.1)
-- [v2.0.0 - January 29, 2020](https://github.com/hyperledger/fabric/releases/tag/v2.0.0)
-- [v2.0.0-beta - December 12, 2019](https://github.com/hyperledger/fabric/releases/tag/v2.0.0-beta)
-- [v2.0.0-alpha - April 9, 2019](https://github.com/hyperledger/fabric/releases/tag/v2.0.0-alpha)
-- [v1.4.6 - February 25, 2020](https://github.com/hyperledger/fabric/releases/tag/v1.4.6)
-- [v1.4.5 - November 19, 2020](https://github.com/hyperledger/fabric/releases/tag/v1.4.5)
-- [v1.4.4 - November 14, 2019](https://github.com/hyperledger/fabric/releases/tag/v1.4.4)
-- [v1.4.3 - August 26, 2019](https://github.com/hyperledger/fabric/releases/tag/v1.4.3)
-- [v1.4.2 - July 17, 2019](https://github.com/hyperledger/fabric/releases/tag/v1.4.2)
-- [v1.4.1 - April 11, 2019](https://github.com/hyperledger/fabric/releases/tag/v1.4.1)
-- [v1.4.1-rc1 - March 29, 2019](https://github.com/hyperledger/fabric/releases/tag/v1.4.1-rc1)
-- [v1.4.0 - January 9, 2019](https://github.com/hyperledger/fabric/releases/tag/v1.4.0)
-- [v1.4.0-rc2 - December 20, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.4.0-rc2)
-- [v1.4.0-rc1 - December 10, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.4.0-rc1)
-- [v1.3.0 - October 10, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.3.0)
-- [v1.3.0-rc1 - September 24, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.3.0-rc1)
-- [v1.2.0 - July 3, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.2.0)
-- [v1.2.0-rc1 - June 22, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.2.0-rc1)
-- [v1.1.0 - March 15, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.1.0)
-- [v1.1.0-rc1 - March 1, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.1.0-rc1)
-- [v1.1.0-alpha - January 25, 2018](https://github.com/hyperledger/fabric/releases/tag/v1.1.0-alpha)
-- [v1.0.5 - December 6, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.5)
-- [v1.1.0-preview - November 1, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.1.0-preview)
-- [v1.0.4 - October 31, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.4)
-- [v1.0.3 - October 3, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.3)
-- [v1.0.2 - September 10, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.2)
-- [v1.0.1 - August 10, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.1)
-- [v1.0.0 - July 11, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.0)
-- [v1.0.0-rc1 - June 23, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.0-rc1)
-- [v1.0.0-beta - June 8, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.0-beta)
-- [v1.0.0-alpha2 - May 14, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.0-alpha2)
-- [v1.0.0-alpha - March 16, 2017](https://github.com/hyperledger/fabric/releases/tag/v1.0.0-alpha)
-- [v0.6.1-preview - October 15, 2016](https://github.com/hyperledger/fabric/releases/tag/v0.6.0-preview)
-- [v0.6.0-preview - September 16, 2016](https://github.com/hyperledger/fabric/releases/tag/v0.6.0-preview)
+Fabric provides a release approximately once every four months with new features
+and improvements. Additionally, certain releases are designated as long-term
+support (LTS) releases. Important fixes will be backported to the most recent
+LTS release, and to the prior LTS release during periods of LTS release overlap.
+For more details see the [LTS strategy](https://github.com/hyperledger/fabric-rfcs/blob/main/text/0005-lts-release-strategy.md).
 
-## Release Roadmap
+LTS releases:
+- [v2.2.x](https://hyperledger-fabric.readthedocs.io/en/release-2.2/whatsnew.html) (current LTS release)
+- [v1.4.x](https://hyperledger-fabric.readthedocs.io/en/release-1.4/whatsnew.html) (prior LTS release, maintained through April 2021)
 
-Please visit the [Hyperledger Fabric wiki](https://wiki.hyperledger.org/display/fabric/Hyperledger+Fabric+Roadmap) for our release roadmap. We plan on a quarterly release cadence following the v1.1.0 release, delivering on a scoped set of themes and select features. Unless specified otherwise, all releases will be upgradable from the prior minor release.
+Unless specified otherwise, all releases will be upgradable from the prior minor release.
+Additionally, each LTS release is upgradable to the next LTS release.
+
+Fabric releases and release notes can be found on the [GitHub releases page](https://github.com/hyperledger/fabric/releases).
+
+Please visit the [GitHub issues with Epic label](https://github.com/hyperledger/fabric/labels/Epic) for our release roadmap.
 
 ## Documentation, Getting Started and Developer Guides
 
 Please visit our
 online documentation for
 information on getting started using and developing with the fabric, SDK and chaincode:
+- [v2.4](http://hyperledger-fabric.readthedocs.io/en/release-2.4/)
+- [v2.3](http://hyperledger-fabric.readthedocs.io/en/release-2.3/)
+- [v2.2](http://hyperledger-fabric.readthedocs.io/en/release-2.2/)
+- [v2.1](http://hyperledger-fabric.readthedocs.io/en/release-2.1/)
 - [v2.0](http://hyperledger-fabric.readthedocs.io/en/release-2.0/)
 - [v1.4](http://hyperledger-fabric.readthedocs.io/en/release-1.4/)
 - [v1.3](http://hyperledger-fabric.readthedocs.io/en/release-1.3/)
 - [v1.2](http://hyperledger-fabric.readthedocs.io/en/release-1.2/)
 - [v1.1](http://hyperledger-fabric.readthedocs.io/en/release-1.1/)
-- [v1.0](http://hyperledger-fabric.readthedocs.io/en/release-1.0/)
-- [master branch (development)](http://hyperledger-fabric.readthedocs.io/en/master/)
+- [main branch (development)](http://hyperledger-fabric.readthedocs.io/en/latest/)
 
 It's recommended for first-time users to begin by going through the Getting Started section of the documentation in order to gain familiarity with the Hyperledger Fabric components and the basic transaction flow.
 
@@ -84,18 +62,15 @@ We welcome contributions to the Hyperledger Fabric project in many forms.
 There’s always plenty to do! Check [the documentation on how to contribute to this project](http://hyperledger-fabric.readthedocs.io/en/latest/CONTRIBUTING.html)
 for the full details.
 
-## Testing
-Check [the documentation](testingInfo.rst) for information on the testing structure that the project follows.
-
 ## Community
 
 [Hyperledger Community](https://www.hyperledger.org/community)
 
 [Hyperledger mailing lists and archives](http://lists.hyperledger.org/)
 
-[Hyperledger Chat](http://chat.hyperledger.org/channel/fabric)
+[Hyperledger Discord Chat](https://discord.com/invite/hyperledger)
 
-[Hyperledger Fabric Issue Tracking (JIRA)](https://jira.hyperledger.org/secure/Dashboard.jspa?selectPageId=10104)
+[Hyperledger Fabric Issue Tracking (GitHub Issues)](https://github.com/hyperledger/fabric/issues)
 
 [Hyperledger Fabric Wiki](https://wiki.hyperledger.org/display/Fabric)
 

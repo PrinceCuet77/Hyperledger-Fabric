@@ -15,15 +15,16 @@ and how and when to use them.
 
 In this topic, we'll cover:
 
-* [What is a smart contract](#smart-contract)
-* [A note on terminology](#terminology)
-* [Smart contracts and the ledger](#ledger)
-* [How to develop a smart contract](#developing)
-* [The importance of endorsement policies](#endorsement)
-* [Valid transactions](#valid-transactions)
-* [Channels and chaincode definitions](#channels)
-* [Communicating between smart contracts](#intercommunication)
-* [What is system chaincode?](#system-chaincode)
+- [Smart Contracts and Chaincode](#smart-contracts-and-chaincode)
+  - [Smart contract](#smart-contract)
+  - [Terminology](#terminology)
+  - [Ledger](#ledger)
+  - [Development](#development)
+  - [Endorsement](#endorsement)
+  - [Valid transactions](#valid-transactions)
+  - [Channels](#channels)
+  - [Intercommunication](#intercommunication)
+  - [System chaincode](#system-chaincode)
 
 ## Smart contract
 
@@ -112,33 +113,30 @@ organizations in that network. It means that only administrators need to worry
 about chaincode; everyone else can think in terms of smart contracts.
 
 At the heart of a smart contract is a set of `transaction` definitions. For
-example, look at
-[`fabcar.js`](https://github.com/hyperledger/fabric-samples/blob/master/chaincode/fabcar/javascript/lib/fabcar.js#L93),
-where you can see a smart contract transaction that creates a new car:
+example, look at assetTransfer.js
+[here](https://github.com/hyperledger/fabric-samples/blob/{BRANCH}/asset-transfer-basic/chaincode-javascript/lib/assetTransfer.js#L67),
+where you can see a smart contract transaction that creates a new asset:
 
 ```javascript
-async createCar(ctx, carNumber, make, model, color, owner) {
-
-    const car = {
-        color,
-        docType: 'car',
-        make,
-        model,
-        owner,
-    };
-
-    await ctx.stub.putState(carNumber, Buffer.from(JSON.stringify(car)));
-}
+    async CreateAsset(ctx, id, color, size, owner, appraisedValue) {
+        const asset = {
+            ID: id,
+            Color: color,
+            Size: size,
+            Owner: owner,
+            AppraisedValue: appraisedValue,
+        };
+        return ctx.stub.putState(id, Buffer.from(JSON.stringify(asset)));
+    }
 ```
 
-You can learn more about the **Fabcar** smart contract in the [Writing your
-first application](../write_first_app.html) tutorial.
+You can learn more about the **Basic** smart contract in the [Running a Fabric Application](../write_first_app.html) tutorial.
 
 A smart contract can describe an almost infinite array of business use cases
 relating to immutability of data in multi-organizational decision making. The
 job of a smart contract developer is to take an existing business process that
 might govern financial prices or delivery conditions, and express it as
-a smart contract in a programming language such as JavaScript, GOLANG or Java.
+a smart contract in a programming language such as JavaScript, Go, or Java.
 The legal and technical skills required to convert centuries of legal language
 into programming language is increasingly practiced by **smart contract
 auditors**. You can learn about how to design and develop a smart contract in
@@ -307,14 +305,12 @@ abbreviations:
 * `_lifecycle` runs in all peers and manages the installation of chaincode on
   your peers, the approval of chaincode definitions for your organization, and
   the committing of chaincode definitions to channels. You can read more about
-  how `_lifecycle` implements the Fabric chaincode lifecycle [process](../chaincode4noah.html).
+  how `_lifecycle` implements the Fabric chaincode lifecycle [process](../chaincode_lifecycle.html).
 
 * Lifecycle system chaincode (LSCC) manages the chaincode lifecycle for the
   1.x releases of Fabric. This version of lifecycle required that chaincode be
-  instantiated or upgraded on channels. You can read more about how the LSCC
-  implements this [process](../chaincode4noah.html).
-  You can still use LSCC to manage your chaincode if you have the channel
-  application capability set to V1_4_x or below.
+  instantiated or upgraded on channels. You can still use LSCC to manage your
+  chaincode if you have the channel application capability set to V1_4_x or below.
 
 * **Configuration system chaincode (CSCC)** runs in all peers to handle changes to a
   channel configuration, such as a policy update.  You can read more about this
@@ -332,7 +328,7 @@ abbreviations:
 
 * **Validation system chaincode (VSCC)** validates a transaction, including checking
   endorsement policy and read-write set versioning. You can read more about the
-  LSCC implements this [process](../peers/peers.html#phase-3-validation).
+  VSCC implements this [process](../peers/peers.html#phase-3-validation).
 
 It is possible for low level Fabric developers and administrators to modify
 these system chaincodes for their own uses. However, the development and

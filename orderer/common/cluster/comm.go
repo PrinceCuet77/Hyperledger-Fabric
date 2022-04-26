@@ -19,7 +19,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/orderer"
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/core/comm"
+	"github.com/hyperledger/fabric/common/util"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -104,6 +104,7 @@ type Comm struct {
 	Connections                      *ConnectionStore
 	Chan2Members                     MembersByChannel
 	Metrics                          *Metrics
+	CompareCertificate               CertificateComparator
 }
 
 type requestContext struct {
@@ -147,7 +148,7 @@ func (c *Comm) requestContext(ctx context.Context, msg proto.Message) (*requestC
 		return nil, errors.Errorf("channel %s doesn't exist", channel)
 	}
 
-	cert := comm.ExtractRawCertificateFromContext(ctx)
+	cert := util.ExtractRawCertificateFromContext(ctx)
 	if len(cert) == 0 {
 		return nil, errors.Errorf("no TLS certificate sent")
 	}
@@ -231,9 +232,9 @@ func (c *Comm) Shutdown() {
 
 	c.shutdown = true
 	for _, members := range c.Chan2Members {
-		for _, member := range members {
-			c.Connections.Disconnect(member.ServerTLSCert)
-		}
+		members.Foreach(func(id uint64, stub *Stub) {
+			c.Connections.Disconnect(stub.ServerTLSCert)
+		})
 	}
 }
 
@@ -272,15 +273,15 @@ func (c *Comm) applyMembershipConfig(channel string, newNodes []RemoteNode) {
 
 	// Remove all stubs without a corresponding node
 	// in the new nodes
-	for id, stub := range mapping {
+	mapping.Foreach(func(id uint64, stub *Stub) {
 		if _, exists := newNodeIDs[id]; exists {
 			c.Logger.Info(id, "exists in both old and new membership for channel", channel, ", skipping its deactivation")
-			continue
+			return
 		}
 		c.Logger.Info("Deactivated node", id, "who's endpoint is", stub.Endpoint, "as it's removed from membership")
-		delete(mapping, id)
+		mapping.Remove(id)
 		stub.Deactivate()
-	}
+	})
 }
 
 // updateStubInMapping updates the given RemoteNode and adds it to the MemberMapping
@@ -374,7 +375,10 @@ func (c *Comm) getOrCreateMapping(channel string) MemberMapping {
 	// Lazily create a mapping if it doesn't already exist
 	mapping, exists := c.Chan2Members[channel]
 	if !exists {
-		mapping = make(MemberMapping)
+		mapping = MemberMapping{
+			id2stub:       make(map[uint64]*Stub),
+			SamePublicKey: c.CompareCertificate,
+		}
 		c.Chan2Members[channel] = mapping
 	}
 	return mapping
@@ -457,8 +461,11 @@ type RemoteContext struct {
 
 // Stream is used to send/receive messages to/from the remote cluster member.
 type Stream struct {
-	abortChan    <-chan struct{}
-	sendBuff     chan *orderer.StepRequest
+	abortChan <-chan struct{}
+	sendBuff  chan struct {
+		request *orderer.StepRequest
+		report  func(error)
+	}
 	commShutdown chan struct{}
 	abortReason  *atomic.Value
 	metrics      *Metrics
@@ -484,6 +491,11 @@ func (stream *Stream) Canceled() bool {
 
 // Send sends the given request to the remote cluster member.
 func (stream *Stream) Send(request *orderer.StepRequest) error {
+	return stream.SendWithReport(request, func(_ error) {})
+}
+
+// SendWithReport sends the given request to the remote cluster member and invokes report on the send result.
+func (stream *Stream) SendWithReport(request *orderer.StepRequest, report func(error)) error {
 	if stream.Canceled() {
 		return errors.New(stream.abortReason.Load().(string))
 	}
@@ -494,12 +506,12 @@ func (stream *Stream) Send(request *orderer.StepRequest) error {
 		allowDrop = true
 	}
 
-	return stream.sendOrDrop(request, allowDrop)
+	return stream.sendOrDrop(request, allowDrop, report)
 }
 
 // sendOrDrop sends the given request to the remote cluster member, or drops it
 // if it is a consensus request and the queue is full.
-func (stream *Stream) sendOrDrop(request *orderer.StepRequest, allowDrop bool) error {
+func (stream *Stream) sendOrDrop(request *orderer.StepRequest, allowDrop bool, report func(error)) error {
 	msgType := "transaction"
 	if allowDrop {
 		msgType = "consensus"
@@ -516,7 +528,10 @@ func (stream *Stream) sendOrDrop(request *orderer.StepRequest, allowDrop bool) e
 	select {
 	case <-stream.abortChan:
 		return errors.Errorf("stream %d aborted", stream.ID)
-	case stream.sendBuff <- request:
+	case stream.sendBuff <- struct {
+		request *orderer.StepRequest
+		report  func(error)
+	}{request: request, report: report}:
 		return nil
 	case <-stream.commShutdown:
 		return nil
@@ -524,19 +539,17 @@ func (stream *Stream) sendOrDrop(request *orderer.StepRequest, allowDrop bool) e
 }
 
 // sendMessage sends the request down the stream
-func (stream *Stream) sendMessage(request *orderer.StepRequest) {
+func (stream *Stream) sendMessage(request *orderer.StepRequest, report func(error)) {
 	start := time.Now()
 	var err error
 	defer func() {
-		if !stream.Logger.IsEnabledFor(zap.DebugLevel) {
-			return
-		}
-		var result string
+		message := fmt.Sprintf("Send of %s to %s(%s) took %v",
+			requestAsString(request), stream.NodeName, stream.Endpoint, time.Since(start))
 		if err != nil {
-			result = fmt.Sprintf("but failed due to %s", err.Error())
+			stream.Logger.Warnf("%s but failed due to %s", message, err.Error())
+		} else {
+			stream.Logger.Debug(message)
 		}
-		stream.Logger.Debugf("Send of %s to %s(%s) took %v %s", requestAsString(request),
-			stream.NodeName, stream.Endpoint, time.Since(start), result)
 	}()
 
 	f := func() (*orderer.StepResponse, error) {
@@ -547,16 +560,21 @@ func (stream *Stream) sendMessage(request *orderer.StepRequest) {
 		return nil, err
 	}
 
-	_, err = stream.operateWithTimeout(f)
+	_, err = stream.operateWithTimeout(f, report)
 }
 
 func (stream *Stream) serviceStream() {
-	defer stream.Cancel(errAborted)
+	streamStartTime := time.Now()
+	defer func() {
+		stream.Cancel(errAborted)
+		stream.Logger.Debugf("Stream %d to (%s) terminated with total lifetime of %s",
+			stream.ID, stream.Endpoint, time.Since(streamStartTime))
+	}()
 
 	for {
 		select {
-		case msg := <-stream.sendBuff:
-			stream.sendMessage(msg)
+		case reqReport := <-stream.sendBuff:
+			stream.sendMessage(reqReport.request, reqReport.report)
 		case <-stream.abortChan:
 			return
 		case <-stream.commShutdown:
@@ -579,11 +597,11 @@ func (stream *Stream) Recv() (*orderer.StepResponse, error) {
 		return stream.Cluster_StepClient.Recv()
 	}
 
-	return stream.operateWithTimeout(f)
+	return stream.operateWithTimeout(f, func(_ error) {})
 }
 
 // operateWithTimeout performs the given operation on the stream, and blocks until the timeout expires.
-func (stream *Stream) operateWithTimeout(invoke StreamOperation) (*orderer.StepResponse, error) {
+func (stream *Stream) operateWithTimeout(invoke StreamOperation, report func(error)) (*orderer.StepResponse, error) {
 	timer := time.NewTimer(stream.Timeout)
 	defer timer.Stop()
 
@@ -606,11 +624,13 @@ func (stream *Stream) operateWithTimeout(invoke StreamOperation) (*orderer.StepR
 
 	select {
 	case r := <-responseChan:
+		report(r.err)
 		if r.err != nil {
 			stream.Cancel(r.err)
 		}
 		return r.res, r.err
 	case <-timer.C:
+		report(errTimeout)
 		stream.Logger.Warningf("Stream %d to %s(%s) was forcibly terminated because timeout (%v) expired",
 			stream.ID, stream.NodeName, stream.Endpoint, stream.Timeout)
 		stream.Cancel(errTimeout)
@@ -656,32 +676,34 @@ func (rc *RemoteContext) NewStream(timeout time.Duration) (*Stream, error) {
 	var canceled uint32
 
 	abortChan := make(chan struct{})
-
-	abort := func() {
-		cancel()
-		rc.streamsByID.Delete(streamID)
-		rc.Metrics.reportEgressStreamCount(rc.Channel, atomic.LoadUint32(&rc.streamsByID.size))
-		rc.Logger.Debugf("Stream %d to %s(%s) is aborted", streamID, nodeName, rc.endpoint)
-		atomic.StoreUint32(&canceled, 1)
-		close(abortChan)
-	}
+	abortReason := &atomic.Value{}
 
 	once := &sync.Once{}
-	abortReason := &atomic.Value{}
+
 	cancelWithReason := func(err error) {
-		abortReason.Store(err.Error())
-		once.Do(abort)
+		once.Do(func() {
+			abortReason.Store(err.Error())
+			cancel()
+			rc.streamsByID.Delete(streamID)
+			rc.Metrics.reportEgressStreamCount(rc.Channel, atomic.LoadUint32(&rc.streamsByID.size))
+			rc.Logger.Debugf("Stream %d to %s(%s) is aborted", streamID, nodeName, rc.endpoint)
+			atomic.StoreUint32(&canceled, 1)
+			close(abortChan)
+		})
 	}
 
 	logger := flogging.MustGetLogger("orderer.common.cluster.step")
 	stepLogger := logger.WithOptions(zap.AddCallerSkip(1))
 
 	s := &Stream{
-		Channel:            rc.Channel,
-		metrics:            rc.Metrics,
-		abortReason:        abortReason,
-		abortChan:          abortChan,
-		sendBuff:           make(chan *orderer.StepRequest, rc.SendBuffSize),
+		Channel:     rc.Channel,
+		metrics:     rc.Metrics,
+		abortReason: abortReason,
+		abortChan:   abortChan,
+		sendBuff: make(chan struct {
+			request *orderer.StepRequest
+			report  func(error)
+		}, rc.SendBuffSize),
 		commShutdown:       rc.shutdownSignal,
 		NodeName:           nodeName,
 		Logger:             stepLogger,
@@ -729,7 +751,7 @@ func (rc *RemoteContext) Abort() {
 }
 
 func commonNameFromContext(ctx context.Context) string {
-	cert := comm.ExtractCertificateFromContext(ctx)
+	cert := util.ExtractCertificateFromContext(ctx)
 	if cert == nil {
 		return "unidentified node"
 	}

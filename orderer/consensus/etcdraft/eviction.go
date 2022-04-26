@@ -26,6 +26,7 @@ type PeriodicCheck struct {
 	CheckInterval       time.Duration
 	Condition           func() bool
 	Report              func(cumulativePeriod time.Duration)
+	ReportCleared       func()
 	conditionHoldsSince time.Time
 	once                sync.Once // Used to prevent double initialization
 	stopped             uint32
@@ -60,6 +61,9 @@ func (pc *PeriodicCheck) check() {
 }
 
 func (pc *PeriodicCheck) conditionNotFulfilled() {
+	if pc.ReportCleared != nil && !pc.conditionHoldsSince.IsZero() {
+		pc.ReportCleared()
+	}
 	pc.conditionHoldsSince = time.Time{}
 }
 
@@ -81,12 +85,20 @@ type evictionSuspector struct {
 	writeBlock                 func(block *common.Block) error
 	triggerCatchUp             func(sn *raftpb.Snapshot)
 	halted                     bool
+	timesTriggered             int
+}
+
+func (es *evictionSuspector) clearSuspicion() {
+	es.timesTriggered = 0
 }
 
 func (es *evictionSuspector) confirmSuspicion(cumulativeSuspicion time.Duration) {
-	if es.evictionSuspicionThreshold > cumulativeSuspicion || es.halted {
+	// The goal here is to only execute the body of the function once every es.evictionSuspicionThreshold
+	if es.evictionSuspicionThreshold*time.Duration(es.timesTriggered+1) > cumulativeSuspicion || es.halted {
 		return
 	}
+	es.timesTriggered++
+
 	es.logger.Infof("Suspecting our own eviction from the channel for %v", cumulativeSuspicion)
 	puller, err := es.createPuller()
 	if err != nil {
@@ -101,13 +113,6 @@ func (es *evictionSuspector) confirmSuspicion(cumulativeSuspicion time.Duration)
 
 	es.logger.Infof("Last config block was found to be block [%d]", lastConfigBlock.Header.Number)
 
-	height := es.height()
-
-	if lastConfigBlock.Header.Number+1 <= height {
-		es.logger.Infof("Our height is higher or equal than the height of the orderer we pulled the last block from, aborting.")
-		return
-	}
-
 	err = es.amIInChannel(lastConfigBlock)
 	if err != cluster.ErrNotInChannel && err != cluster.ErrForbidden {
 		details := fmt.Sprintf(", our certificate was found in config block with sequence %d", lastConfigBlock.Header.Number)
@@ -119,12 +124,18 @@ func (es *evictionSuspector) confirmSuspicion(cumulativeSuspicion time.Duration)
 		es.triggerCatchUp(&raftpb.Snapshot{Data: protoutil.MarshalOrPanic(lastConfigBlock)})
 		return
 	}
-
 	es.logger.Warningf("Detected our own eviction from the channel in block [%d]", lastConfigBlock.Header.Number)
 
 	es.logger.Infof("Waiting for chain to halt")
 	es.halt()
 	es.halted = true
+
+	height := es.height()
+	if lastConfigBlock.Header.Number+1 <= height {
+		es.logger.Infof("Our height is higher or equal than the height of the orderer we pulled the last block from, aborting.")
+		return
+	}
+
 	es.logger.Infof("Chain has been halted, pulling remaining blocks up to (and including) eviction block.")
 
 	nextBlock := height

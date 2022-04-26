@@ -1,26 +1,13 @@
 Membership Service Providers (MSP)
 ==================================
 
-The document serves to provide details on the setup and best practices for MSPs.
+For a conceptual overview of the Membership Service Provider (MSP), check out
+:doc:`membership/membership`.
 
-Membership Service Provider (MSP) is a Hyperledger Fabric component that offers
-an abstraction of membership operations.
+This topic elaborates on the setup of the MSP implementation supported by
+Hyperledger Fabric and discusses best practices concerning its use.
 
-In particular, MSP abstracts away all cryptographic mechanisms and protocols
-behind issuing certificates, validating certificates and user authentication. An
-MSP may define their own notion of identity, and the rules by which those
-identities are governed (identity validation) and authenticated (signature
-generation and verification).
-
-A Hyperledger Fabric blockchain network can be governed by one or more MSPs.
-This provides modularity of membership operations, and interoperability
-across different membership standards and architectures.
-
-In the rest of this document we elaborate on the setup of the MSP
-implementation supported by Hyperledger Fabric, and discuss best practices
-concerning its use.
-
-MSP Configuration
+MSP configuration
 -----------------
 
 To setup an instance of the MSP, its configuration needs to be specified
@@ -34,10 +21,9 @@ in the network (e.g. ``msp1``, ``org2``, and ``org3.divA``). This is the name un
 which membership rules of an MSP representing a consortium, organization or
 organization division is to be referenced in a channel. This is also referred
 to as the *MSP Identifier* or *MSP ID*. MSP Identifiers are required to be unique per MSP
-instance. For example, shall two MSP instances with the same identifier be
-detected at the system channel genesis, orderer setup will fail.
+instance.
 
-In the case of default implementation of MSP, a set of parameters need to be
+In the case of the default MSP implementation, a set of parameters need to be
 specified to allow for identity (certificate) validation and signature
 verification. These parameters are deduced by
 `RFC5280 <http://www.ietf.org/rfc/rfc5280.txt>`_, and include:
@@ -61,7 +47,7 @@ verification. These parameters are deduced by
   exactly one of the listed (intermediate or root) MSP Certificate
   Authorities; this is an optional parameter
 - A list of self-signed (X.509) certificates to constitute the *TLS root of
-  trust* for TLS certificate.
+  trust* for TLS certificates.
 - A list of X.509 certificates to represent intermediate TLS CAs this provider
   considers; these certificates ought to be
   certified by exactly one of the certificates in the TLS root of trust;
@@ -94,58 +80,14 @@ support for enforcing revocation of TLS certificates.
 How to generate MSP certificates and their signing keys?
 --------------------------------------------------------
 
-To generate X.509 certificates to feed its MSP configuration, the application
-can use `Openssl <https://www.openssl.org/>`_. We emphasize that in Hyperledger
-Fabric there is no support for certificates including RSA keys.
+`Openssl <https://www.openssl.org/>`_ can be used to generate X.509
+certificates and keys. Please note that Hyperledger Fabric does not support
+RSA key and certificates.
 
-Alternatively one can use ``cryptogen`` tool, whose operation is explained in
-:doc:`getting_started`.
-
-`Hyperledger Fabric CA <http://hyperledger-fabric-ca.readthedocs.io/en/latest/>`_
-can also be used to generate the keys and certificates needed to configure an MSP.
-
-MSP setup on the peer & orderer side
-------------------------------------
-
-To set up a local MSP (for either a peer or an orderer), the administrator
-should create a folder (e.g. ``$MY_PATH/mspconfig``) that contains six subfolders
-and a file:
-
-1. a folder ``admincerts`` to include PEM files each corresponding to an
-   administrator certificate
-2. a folder ``cacerts`` to include PEM files each corresponding to a root
-   CA's certificate
-3. (optional) a folder ``intermediatecerts`` to include PEM files each
-   corresponding to an intermediate CA's certificate
-4. (optional) a file ``config.yaml`` to configure the supported Organizational Units
-   and identity classifications (see respective sections below).
-5. (optional) a folder ``crls`` to include the considered CRLs
-6. a folder ``keystore`` to include a PEM file with the node's signing key;
-   we emphasise that currently RSA keys are not supported
-7. a folder ``signcerts`` to include a PEM file with the node's X.509
-   certificate
-8. (optional) a folder ``tlscacerts`` to include PEM files each corresponding to a TLS root
-   CA's certificate
-9. (optional) a folder ``tlsintermediatecerts`` to include PEM files each
-   corresponding to an intermediate TLS CA's certificate
-
-In the configuration file of the node (core.yaml file for the peer, and
-orderer.yaml for the orderer), one needs to specify the path to the
-mspconfig folder, and the MSP Identifier of the node's MSP. The path to the
-mspconfig folder is expected to be relative to FABRIC_CFG_PATH and is provided
-as the value of parameter ``mspConfigPath`` for the peer, and ``LocalMSPDir``
-for the orderer. The identifier of the node's MSP is provided as a value of
-parameter ``localMspId`` for the peer and ``LocalMSPID`` for the orderer.
-These variables can be overridden via the environment using the CORE prefix for
-peer (e.g. CORE_PEER_LOCALMSPID) and the ORDERER prefix for the orderer (e.g.
-ORDERER_GENERAL_LOCALMSPID). Notice that for the orderer setup, one needs to
-generate, and provide to the orderer the genesis block of the system channel.
-The MSP configuration needs of this block are detailed in the next section.
-
-*Reconfiguration* of a "local" MSP is only possible manually, and requires that
-the peer or orderer process is restarted. In subsequent releases we aim to
-offer online/dynamic reconfiguration (i.e. without requiring to stop the node
-by using a node managed system chaincode).
+The Hyperledger Fabric CA can also be used to generate the keys and certificates
+needed to configure an MSP. Check out
+`Registering and enrolling identities with a CA <https://hyperledger-fabric-ca.readthedocs.io/en/latest/deployguide/use_CA.html>`_
+for more information about how to generate MSPs for nodes and organizations.
 
 Organizational Units
 --------------------
@@ -169,7 +111,7 @@ The ``Certificate`` field refers to the CA or intermediate CA certificate path
 under which identities, having that specific OU, should be validated.
 The path is relative to the MSP root folder and cannot be empty.
 
-Identity Classification
+Identity classification
 -----------------------
 
 The default MSP implementation allows organizations to further classify identities into clients,
@@ -241,38 +183,14 @@ without the certificate being stored in the ``admincerts`` folder of the MSP. In
 with the admin OU. Certificates in the ``admincerts`` folder will still grant the role of
 administrator to their bearer, provided that they possess the client or admin OU.
 
-Channel MSP setup
------------------
+Adding MSPs to channels
+-----------------------
 
-At the genesis of the system, verification parameters of all the MSPs that
-appear in the network need to be specified, and included in the system
-channel's genesis block. Recall that MSP verification parameters consist of
-the MSP identifier, the root of trust certificates, intermediate CA and admin
-certificates, as well as OU specifications and CRLs.
-The system genesis block is provided to the orderers at their setup phase,
-and allows them to authenticate channel creation requests. Orderers would
-reject the system genesis block, if the latter includes two MSPs with the same
-identifier, and consequently the bootstrapping of the network would fail.
+For information about how to add MSPs to a channel (including the decision of
+whether to bootstrap ordering nodes with a system channel genesis block), check
+out :doc:`create_channel/create_channel_overview`.
 
-For application channels, the verification components of only the MSPs that
-govern a channel need to reside in the channel's genesis block. We emphasize
-that it is **the responsibility of the application** to ensure that correct
-MSP configuration information is included in the genesis blocks (or the
-most recent configuration block) of a channel prior to instructing one or
-more of their peers to join the channel.
-
-When bootstrapping a channel with the help of the configtxgen tool, one can
-configure the channel MSPs by including the verification parameters of MSP
-in the mspconfig folder, and setting that path in the relevant section in
-``configtx.yaml``.
-
-*Reconfiguration* of an MSP on the channel, including announcements of the
-certificate revocation lists associated to the CAs of that MSP is achieved
-through the creation of a ``config_update`` object by the owner of one of the
-administrator certificates of the MSP. The client application managed by the
-admin would then announce this update to the channels in which this MSP appears.
-
-Best Practices
+Best practices
 --------------
 
 In this section we elaborate on best practices for MSP
@@ -309,9 +227,11 @@ Two ways to handle this:
   Configuration of that MSP would consist of a list of root CAs,
   intermediate CAs and admin certificates; and membership identities would
   include the organizational unit (``OU``) a member belongs to. Policies can then
-  be defined to capture members of a specific ``OU``, and these policies may
-  constitute the read/write policies of a channel or endorsement policies of
-  a chaincode. A limitation of this approach is that gossip peers would
+  be defined to capture members of a specific ``role`` (should be one of: peer, admin,
+  client, orderer, member), and these policies may constitute the read/write policies
+  of a channel or endorsement policies of a chaincode. Specifying custom OUs in
+  the profile section of ``configtx.yaml`` is currently not configured.
+  A limitation of this approach is that gossip peers would
   consider peers with membership identities under their local MSP as
   members of the same organization, and would consequently gossip
   with them organization-scoped data (e.g. their status).
@@ -365,7 +285,7 @@ certificates considered by the MSP for ``root of trust``, or intermediate CAs.
 This is a common (security) practice to separate the duties of management of
 membership components from the issuing of new certificates, and/or validation of existing ones.
 
-**5) Blacklisting an intermediate CA.**
+**5) Blocking an intermediate CA.**
 
 As mentioned in previous sections, reconfiguration of an MSP is achieved by
 reconfiguration mechanisms (manual reconfiguration for the local MSP instances,
@@ -381,7 +301,7 @@ considered for that MSP's identity validation:
    which denounces the mentioned intermediate CA's certificate.
 
 In the current MSP implementation we only support method (1) as it is simpler
-and does not require blacklisting the no longer considered intermediate CA.
+and does not require blocking the no longer considered intermediate CA.
 
 **6) CAs and TLS CAs**
 

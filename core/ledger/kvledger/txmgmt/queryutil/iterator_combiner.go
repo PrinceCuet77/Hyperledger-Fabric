@@ -30,7 +30,7 @@ func newItrCombiner(namespace string, baseIterators []statedb.ResultsIterator) (
 			return nil, err
 		}
 		if res != nil {
-			holders = append(holders, &itrHolder{itr, res.(*statedb.VersionedKV)})
+			holders = append(holders, &itrHolder{itr, res})
 		}
 	}
 	return &itrCombiner{namespace, holders}, nil
@@ -67,7 +67,9 @@ func (combiner *itrCombiner) Next() (commonledger.QueryResult, error) {
 		}
 	}
 	kv := combiner.kvAt(smallestHolderIndex)
-	combiner.moveItrAndRemoveIfExhausted(smallestHolderIndex)
+	if _, err := combiner.moveItrAndRemoveIfExhausted(smallestHolderIndex); err != nil {
+		return nil, err
+	}
 	if kv.IsDelete() {
 		return combiner.Next()
 	}
@@ -117,12 +119,12 @@ type itrHolder struct {
 
 // moveToNext fetches the next item to keep in buffer and returns true if the iterator is exhausted
 func (holder *itrHolder) moveToNext() (exhausted bool, err error) {
-	var res statedb.QueryResult
+	var res *statedb.VersionedKV
 	if res, err = holder.itr.Next(); err != nil {
 		return false, err
 	}
 	if res != nil {
-		holder.kv = res.(*statedb.VersionedKV)
+		holder.kv = res
 	}
 	return res == nil, nil
 }

@@ -14,11 +14,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-var (
-	// Logger is the logging instance for this package.
-	// It's exported because the tests override its backend
-	Logger = flogging.MustGetLogger("discovery.lifecycle")
-)
+// Logger is the logging instance for this package.
+// It's exported because the tests override its backend
+var Logger = flogging.MustGetLogger("discovery.lifecycle")
 
 // MetadataManager manages information about lscc chaincodes.
 type MetadataManager struct {
@@ -105,7 +103,7 @@ func NewMetadataManager(installedChaincodes Enumerator) (*MetadataManager, error
 
 // Metadata returns the metadata of the chaincode on the given channel,
 // or nil if not found or an error occurred at retrieving it
-func (m *MetadataManager) Metadata(channel string, cc string, collections bool) *chaincode.Metadata {
+func (m *MetadataManager) Metadata(channel string, cc string, collections ...string) *chaincode.Metadata {
 	queryCreator := m.queryCreatorsByChannel[channel]
 	if queryCreator == nil {
 		Logger.Warning("Requested Metadata for non-existent channel", channel)
@@ -113,7 +111,7 @@ func (m *MetadataManager) Metadata(channel string, cc string, collections bool) 
 	}
 	// Search the metadata in our local cache, and if it exists - return it, but only if
 	// no collections were specified in the invocation.
-	if md, found := m.deployedCCsByChannel[channel].Lookup(cc); found && !collections {
+	if md, found := m.deployedCCsByChannel[channel].Lookup(cc); found && len(collections) == 0 {
 		Logger.Debug("Returning metadata for channel", channel, ", chaincode", cc, ":", md)
 		return &md
 	}
@@ -122,13 +120,13 @@ func (m *MetadataManager) Metadata(channel string, cc string, collections bool) 
 		Logger.Error("Failed obtaining new query for channel", channel, ":", err)
 		return nil
 	}
-	md, err := DeployedChaincodes(query, AcceptAll, collections, cc)
+	md, err := DeployedChaincodes(query, AcceptAll, len(collections) > 0, cc)
 	if err != nil {
 		Logger.Error("Failed querying LSCC for channel", channel, ":", err)
 		return nil
 	}
 	if len(md) == 0 {
-		Logger.Info("Chaincode", cc, "isn't defined in channel", channel)
+		Logger.Warn("Chaincode", cc, "isn't defined in channel", channel)
 		return nil
 	}
 

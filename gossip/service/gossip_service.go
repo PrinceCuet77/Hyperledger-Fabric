@@ -7,11 +7,12 @@ SPDX-License-Identifier: Apache-2.0
 package service
 
 import (
+	"fmt"
 	"sync"
 
 	gproto "github.com/hyperledger/fabric-protos-go/gossip"
 	tspb "github.com/hyperledger/fabric-protos-go/transientstore"
-	corecomm "github.com/hyperledger/fabric/core/comm"
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/committer"
 	"github.com/hyperledger/fabric/core/committer/txvalidator"
 	"github.com/hyperledger/fabric/core/common/privdata"
@@ -20,7 +21,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/common"
-	gossipcommon "github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/discovery"
 	"github.com/hyperledger/fabric/gossip/election"
 	"github.com/hyperledger/fabric/gossip/filter"
@@ -30,6 +30,7 @@ import (
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/hyperledger/fabric/gossip/state"
 	"github.com/hyperledger/fabric/gossip/util"
+	corecomm "github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider"
 	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
@@ -111,7 +112,7 @@ type gossipSvc interface {
 // required from gossip service by delivery service
 type GossipServiceAdapter interface {
 	// PeersOfChannel returns slice with members of specified channel
-	PeersOfChannel(gossipcommon.ChannelID) []discovery.NetworkMember
+	PeersOfChannel(common.ChannelID) []discovery.NetworkMember
 
 	// AddPayload adds payload to the local state sync buffer
 	AddPayload(channelID string, payload *gproto.Payload) error
@@ -129,7 +130,6 @@ type DeliveryServiceFactory interface {
 type deliveryFactoryImpl struct {
 	signer               identity.SignerSerializer
 	credentialSupport    *corecomm.CredentialSupport
-	deliverGRPCClient    *corecomm.GRPCClient
 	deliverServiceConfig *deliverservice.DeliverServiceConfig
 }
 
@@ -140,7 +140,6 @@ func (df *deliveryFactoryImpl) Service(g GossipServiceAdapter, ordererSource *or
 		CryptoSvc:            mcs,
 		Gossip:               g,
 		Signer:               df.signer,
-		DeliverGRPCClient:    df.deliverGRPCClient,
 		DeliverServiceConfig: df.deliverServiceConfig,
 		OrdererSource:        ordererSource,
 	})
@@ -158,19 +157,22 @@ func (p privateHandler) close() {
 	p.reconciler.Stop()
 }
 
+// GossipService handles the interaction between gossip service and peer
 type GossipService struct {
 	gossipSvc
-	privateHandlers map[string]privateHandler
-	chains          map[string]state.GossipStateProvider
-	leaderElection  map[string]election.LeaderElectionService
-	deliveryService map[string]deliverservice.DeliverService
-	deliveryFactory DeliveryServiceFactory
-	lock            sync.RWMutex
-	mcs             api.MessageCryptoService
-	peerIdentity    []byte
-	secAdv          api.SecurityAdvisor
-	metrics         *gossipmetrics.GossipMetrics
-	serviceConfig   *ServiceConfig
+	privateHandlers   map[string]privateHandler
+	chains            map[string]state.GossipStateProvider
+	leaderElection    map[string]election.LeaderElectionService
+	deliveryService   map[string]deliverservice.DeliverService
+	deliveryFactory   DeliveryServiceFactory
+	lock              sync.RWMutex
+	mcs               api.MessageCryptoService
+	peerIdentity      []byte
+	secAdv            api.SecurityAdvisor
+	metrics           *gossipmetrics.GossipMetrics
+	serviceConfig     *ServiceConfig
+	privdataConfig    *gossipprivdata.PrivdataConfig
+	anchorPeerTracker *anchorPeerTracker
 }
 
 // This is an implementation of api.JoinChannelMessage.
@@ -197,6 +199,33 @@ func (jcm *joinChannelMessage) AnchorPeersOf(org api.OrgIdentityType) []api.Anch
 	return jcm.members2AnchorPeers[string(org)]
 }
 
+// anchorPeerTracker maintains anchor peer endpoints for all the channels.
+type anchorPeerTracker struct {
+	// allEndpoints contains anchor peer endpoints for all the channels,
+	// its key is channel name, value is map of anchor peer endpoints
+	allEndpoints map[string]map[string]struct{}
+	mutex        sync.RWMutex
+}
+
+// update overwrites the anchor peer endpoints for the channel
+func (t *anchorPeerTracker) update(channelName string, endpoints map[string]struct{}) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	t.allEndpoints[channelName] = endpoints
+}
+
+// IsAnchorPeer checks if an endpoint is an anchor peer in any channel
+func (t *anchorPeerTracker) IsAnchorPeer(endpoint string) bool {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+	for _, endpointsForChannel := range t.allEndpoints {
+		if _, ok := endpointsForChannel[endpoint]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 var logger = util.GetLogger(util.ServiceLogger, "")
 
 // New creates the gossip service.
@@ -209,9 +238,9 @@ func New(
 	secAdv api.SecurityAdvisor,
 	secureDialOpts api.PeerSecureDialOpts,
 	credSupport *corecomm.CredentialSupport,
-	deliverGRPCClient *corecomm.GRPCClient,
 	gossipConfig *gossip.Config,
 	serviceConfig *ServiceConfig,
+	privdataConfig *gossipprivdata.PrivdataConfig,
 	deliverServiceConfig *deliverservice.DeliverServiceConfig,
 ) (*GossipService, error) {
 	serializedIdentity, err := peerIdentity.Serialize()
@@ -221,6 +250,7 @@ func New(
 
 	logger.Infof("Initialize gossip with endpoint %s", endpoint)
 
+	anchorPeerTracker := &anchorPeerTracker{allEndpoints: map[string]map[string]struct{}{}}
 	gossipComponent := gossip.New(
 		gossipConfig,
 		s,
@@ -229,6 +259,7 @@ func New(
 		serializedIdentity,
 		secureDialOpts,
 		gossipMetrics,
+		anchorPeerTracker,
 	)
 
 	return &GossipService{
@@ -241,13 +272,14 @@ func New(
 		deliveryFactory: &deliveryFactoryImpl{
 			signer:               peerIdentity,
 			credentialSupport:    credSupport,
-			deliverGRPCClient:    deliverGRPCClient,
 			deliverServiceConfig: deliverServiceConfig,
 		},
-		peerIdentity:  serializedIdentity,
-		secAdv:        secAdv,
-		metrics:       gossipMetrics,
-		serviceConfig: serviceConfig,
+		peerIdentity:      serializedIdentity,
+		secAdv:            secAdv,
+		metrics:           gossipMetrics,
+		serviceConfig:     serviceConfig,
+		privdataConfig:    privdataConfig,
+		anchorPeerTracker: anchorPeerTracker,
 	}, nil
 }
 
@@ -298,7 +330,7 @@ func (g *GossipService) InitializeChannel(channelID string, ordererSource *order
 	servicesAdapter := &state.ServicesMediator{GossipAdapter: g, MCSAdapter: g.mcs}
 
 	// Initialize private data fetcher
-	dataRetriever := gossipprivdata.NewDataRetriever(store, support.Committer)
+	dataRetriever := gossipprivdata.NewDataRetriever(channelID, store, support.Committer)
 	collectionAccessFactory := gossipprivdata.NewCollectionAccessFactory(support.IdDeserializeFactory)
 	fetcher := gossipprivdata.NewPuller(g.metrics.PrivdataMetrics, support.CollectionStore, g.gossipSvc, dataRetriever,
 		collectionAccessFactory, channelID, g.serviceConfig.BtlPullMargin)
@@ -320,12 +352,11 @@ func (g *GossipService) InitializeChannel(channelID string, ordererSource *order
 	}, store, selfSignedData, g.metrics.PrivdataMetrics, coordinatorConfig,
 		support.IdDeserializeFactory)
 
-	privdataConfig := gossipprivdata.GlobalConfig()
 	var reconciler gossipprivdata.PvtDataReconciler
 
-	if privdataConfig.ReconciliationEnabled {
+	if g.privdataConfig.ReconciliationEnabled {
 		reconciler = gossipprivdata.NewReconciler(channelID, g.metrics.PrivdataMetrics,
-			support.Committer, fetcher, privdataConfig)
+			support.Committer, fetcher, g.privdataConfig)
 	} else {
 		reconciler = &gossipprivdata.NoOpReconciler{}
 	}
@@ -342,6 +373,7 @@ func (g *GossipService) InitializeChannel(channelID string, ordererSource *order
 	blockingMode := !g.serviceConfig.NonBlockingCommitMode
 	stateConfig := state.GlobalConfig()
 	g.chains[channelID] = state.NewGossipStateProvider(
+		flogging.MustGetLogger(util.StateLogger),
 		channelID,
 		servicesAdapter,
 		coordinator,
@@ -381,7 +413,6 @@ func (g *GossipService) InitializeChannel(channelID string, ordererSource *order
 	} else {
 		logger.Warning("Delivery client is down won't be able to pull blocks for chain", channelID)
 	}
-
 }
 
 func (g *GossipService) createSelfSignedData() protoutil.SignedData {
@@ -398,15 +429,16 @@ func (g *GossipService) createSelfSignedData() protoutil.SignedData {
 }
 
 // updateAnchors constructs a joinChannelMessage and sends it to the gossipSvc
-func (g *GossipService) updateAnchors(config Config) {
+func (g *GossipService) updateAnchors(configUpdate ConfigUpdate) {
 	myOrg := string(g.secAdv.OrgByPeerIdentity(api.PeerIdentityType(g.peerIdentity)))
-	if !g.amIinChannel(myOrg, config) {
-		logger.Error("Tried joining channel", config.ChannelID(), "but our org(", myOrg, "), isn't "+
-			"among the orgs of the channel:", orgListFromConfig(config), ", aborting.")
+	if !g.amIinChannel(myOrg, configUpdate) {
+		logger.Error("Tried joining channel", configUpdate.ChannelID, "but our org(", myOrg, "), isn't "+
+			"among the orgs of the channel:", orgListFromConfigUpdate(configUpdate), ", aborting.")
 		return
 	}
-	jcm := &joinChannelMessage{seqNum: config.Sequence(), members2AnchorPeers: map[string][]api.AnchorPeer{}}
-	for _, appOrg := range config.Organizations() {
+	jcm := &joinChannelMessage{seqNum: configUpdate.Sequence, members2AnchorPeers: map[string][]api.AnchorPeer{}}
+	anchorPeerEndpoints := map[string]struct{}{}
+	for _, appOrg := range configUpdate.Organizations {
 		logger.Debug(appOrg.MSPID(), "anchor peers:", appOrg.AnchorPeers())
 		jcm.members2AnchorPeers[appOrg.MSPID()] = []api.AnchorPeer{}
 		for _, ap := range appOrg.AnchorPeers() {
@@ -415,12 +447,14 @@ func (g *GossipService) updateAnchors(config Config) {
 				Port: int(ap.Port),
 			}
 			jcm.members2AnchorPeers[appOrg.MSPID()] = append(jcm.members2AnchorPeers[appOrg.MSPID()], anchorPeer)
+			anchorPeerEndpoints[fmt.Sprintf("%s:%d", ap.Host, ap.Port)] = struct{}{}
 		}
 	}
+	g.anchorPeerTracker.update(configUpdate.ChannelID, anchorPeerEndpoints)
 
 	// Initialize new state provider for given committer
-	logger.Debug("Creating state provider for channelID", config.ChannelID())
-	g.JoinChan(jcm, gossipcommon.ChannelID(config.ChannelID()))
+	logger.Debug("Creating state provider for channelID", configUpdate.ChannelID)
+	g.JoinChan(jcm, common.ChannelID(configUpdate.ChannelID))
 }
 
 // AddPayload appends message payload to for given chain
@@ -454,7 +488,7 @@ func (g *GossipService) Stop() {
 func (g *GossipService) newLeaderElectionComponent(channelID string, callback func(bool),
 	electionMetrics *gossipmetrics.ElectionMetrics) election.LeaderElectionService {
 	PKIid := g.mcs.GetPKIidOfCert(g.peerIdentity)
-	adapter := election.NewAdapter(g, PKIid, gossipcommon.ChannelID(channelID), electionMetrics)
+	adapter := election.NewAdapter(g, PKIid, common.ChannelID(channelID), electionMetrics)
 	config := election.ElectionConfig{
 		StartupGracePeriod:       g.serviceConfig.ElectionStartupGracePeriod,
 		MembershipSampleInterval: g.serviceConfig.ElectionMembershipSampleInterval,
@@ -464,8 +498,8 @@ func (g *GossipService) newLeaderElectionComponent(channelID string, callback fu
 	return election.NewLeaderElectionService(adapter, string(PKIid), callback, config)
 }
 
-func (g *GossipService) amIinChannel(myOrg string, config Config) bool {
-	for _, orgName := range orgListFromConfig(config) {
+func (g *GossipService) amIinChannel(myOrg string, configUpdate ConfigUpdate) bool {
+	for _, orgName := range orgListFromConfigUpdate(configUpdate) {
 		if orgName == myOrg {
 			return true
 		}
@@ -495,9 +529,9 @@ func (g *GossipService) onStatusChangeFactory(channelID string, committer blocks
 	}
 }
 
-func orgListFromConfig(config Config) []string {
+func orgListFromConfigUpdate(config ConfigUpdate) []string {
 	var orgList []string
-	for _, appOrg := range config.Organizations() {
+	for _, appOrg := range config.Organizations {
 		orgList = append(orgList, appOrg.MSPID())
 	}
 	return orgList

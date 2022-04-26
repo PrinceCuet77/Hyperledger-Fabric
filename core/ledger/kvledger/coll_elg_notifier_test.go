@@ -14,7 +14,7 @@ import (
 	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/mock"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCollElgNotifier(t *testing.T) {
@@ -27,13 +27,15 @@ func TestCollElgNotifier(t *testing.T) {
 	mockDeployedChaincodeInfoProvider.ChaincodeInfoReturnsOnCall(0,
 		&ledger.DeployedChaincodeInfo{
 			ExplicitCollectionConfigPkg: testutilPrepapreMockCollectionConfigPkg(
-				map[string]bool{"coll1": true, "coll2": true, "coll3": false})}, nil)
+				map[string]bool{"coll1": true, "coll2": true, "coll3": false}),
+		}, nil)
 
 	// post commit - returns 4 collections
 	mockDeployedChaincodeInfoProvider.ChaincodeInfoReturnsOnCall(1,
 		&ledger.DeployedChaincodeInfo{
 			ExplicitCollectionConfigPkg: testutilPrepapreMockCollectionConfigPkg(
-				map[string]bool{"coll1": false, "coll2": true, "coll3": true, "coll4": true})}, nil)
+				map[string]bool{"coll1": false, "coll2": true, "coll3": true, "coll4": true}),
+		}, nil)
 
 	mockMembershipInfoProvider := &mock.MembershipInfoProvider{}
 	mockMembershipInfoProvider.AmMemberOfStub = func(channel string, p *peer.CollectionPolicyConfig) (bool, error) {
@@ -49,7 +51,7 @@ func TestCollElgNotifier(t *testing.T) {
 	}
 	collElgNotifier.registerListener("testLedger", mockCollElgListener)
 
-	collElgNotifier.HandleStateUpdates(&ledger.StateUpdateTrigger{
+	err := collElgNotifier.HandleStateUpdates(&ledger.StateUpdateTrigger{
 		LedgerID:           "testLedger",
 		CommittingBlockNum: uint64(500),
 		StateUpdates: map[string]*ledger.KVStateUpdates{
@@ -63,11 +65,12 @@ func TestCollElgNotifier(t *testing.T) {
 			},
 		},
 	})
+	require.NoError(t, err)
 
 	// event triggered should only contain "coll3" as this is the only collection
 	// for which peer became from ineligile to eligible by upgrade tx
-	assert.Equal(t, uint64(500), mockCollElgListener.receivedCommittingBlk)
-	assert.Equal(t,
+	require.Equal(t, uint64(500), mockCollElgListener.receivedCommittingBlk)
+	require.Equal(t,
 		map[string][]string{
 			"cc1": {"coll3"},
 		},

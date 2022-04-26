@@ -13,12 +13,14 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/hyperledger/fabric-protos-go/peer"
+
 	"github.com/golang/protobuf/proto"
-	. "github.com/hyperledger/fabric-protos-go/discovery"
+	"github.com/hyperledger/fabric-protos-go/discovery"
 	"github.com/hyperledger/fabric-protos-go/gossip"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric/cmd/common"
-	discovery "github.com/hyperledger/fabric/discovery/client"
+	discoveryclient "github.com/hyperledger/fabric/discovery/client"
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/pkg/errors"
 )
@@ -38,12 +40,18 @@ type EndorsersCmd struct {
 	channel     *string
 	chaincodes  *[]string
 	collections *map[string]string
+	noPrivReads *[]string
 	parser      ResponseParser
 }
 
 // SetCollections sets the collections to be the given collections
 func (pc *EndorsersCmd) SetCollections(collections *map[string]string) {
 	pc.collections = collections
+}
+
+// SetNoPrivateReads sets the collections that are expected not to have private reads
+func (pc *EndorsersCmd) SetNoPrivateReads(noPrivReads *[]string) {
+	pc.noPrivReads = noPrivReads
 }
 
 // SetChaincodes sets the chaincodes to be the given chaincodes
@@ -77,22 +85,24 @@ func (pc *EndorsersCmd) Execute(conf common.Config) error {
 	ccAndCol := &chaincodesAndCollections{
 		Chaincodes:  pc.chaincodes,
 		Collections: pc.collections,
+		NoPrivReads: pc.noPrivReads,
 	}
 	cc2collections, err := ccAndCol.parseInput()
 	if err != nil {
 		return err
 	}
 
-	var ccCalls []*ChaincodeCall
+	var ccCalls []*peer.ChaincodeCall
 
 	for _, cc := range *ccAndCol.Chaincodes {
-		ccCalls = append(ccCalls, &ChaincodeCall{
+		ccCalls = append(ccCalls, &peer.ChaincodeCall{
 			Name:            cc,
 			CollectionNames: cc2collections[cc],
+			NoPrivateReads:  ccAndCol.noPrivateReads(cc),
 		})
 	}
 
-	req, err := discovery.NewRequest().OfChannel(channel).AddEndorsersQuery(&ChaincodeInterest{Chaincodes: ccCalls})
+	req, err := discoveryclient.NewRequest().OfChannel(channel).AddEndorsersQuery(&peer.ChaincodeInterest{Chaincodes: ccCalls})
 	if err != nil {
 		return errors.Wrap(err, "failed creating request")
 	}
@@ -134,6 +144,16 @@ func (parser *EndorserResponseParser) ParseResponse(channel string, res ServiceR
 type chaincodesAndCollections struct {
 	Chaincodes  *[]string
 	Collections *map[string]string
+	NoPrivReads *[]string
+}
+
+func (ec *chaincodesAndCollections) noPrivateReads(chaincodeName string) bool {
+	for _, cc := range *ec.NoPrivReads {
+		if chaincodeName == cc {
+			return true
+		}
+	}
+	return false
 }
 
 func (ec *chaincodesAndCollections) existsInChaincodes(chaincodeName string) bool {
@@ -150,6 +170,11 @@ func (ec *chaincodesAndCollections) parseInput() (map[string][]string, error) {
 	if ec.Chaincodes == nil {
 		ec.Chaincodes = &emptyChaincodes
 	}
+
+	if ec.NoPrivReads == nil {
+		ec.NoPrivReads = &emptyChaincodes
+	}
+
 	var emptyCollections map[string]string
 	if ec.Collections == nil {
 		ec.Collections = &emptyCollections
@@ -161,16 +186,23 @@ func (ec *chaincodesAndCollections) parseInput() (map[string][]string, error) {
 		res[cc] = nil
 	}
 
+	for _, cc := range *ec.NoPrivReads {
+		if !ec.existsInChaincodes(cc) {
+			return nil, errors.Errorf("chaincode %s is specified as not containing private data reads but should be explicitly defined via a chaincode flag", cc)
+		}
+	}
+
 	for cc, collections := range *ec.Collections {
 		if !ec.existsInChaincodes(cc) {
 			return nil, errors.Errorf("a collection specified chaincode %s but it wasn't specified with a chaincode flag", cc)
 		}
 		res[cc] = strings.Split(collections, ",")
 	}
+
 	return res, nil
 }
 
-func parseEndorsementDescriptors(descriptors []*EndorsementDescriptor) []endorsermentDescriptor {
+func parseEndorsementDescriptors(descriptors []*discovery.EndorsementDescriptor) []endorsermentDescriptor {
 	var res []endorsermentDescriptor
 	for _, desc := range descriptors {
 		endorsersByGroups := make(map[string][]endorser)
@@ -198,10 +230,10 @@ type endorser struct {
 type endorsermentDescriptor struct {
 	Chaincode         string
 	EndorsersByGroups map[string][]endorser
-	Layouts           []*Layout
+	Layouts           []*discovery.Layout
 }
 
-func endorserFromRaw(p *Peer) endorser {
+func endorserFromRaw(p *discovery.Peer) endorser {
 	sId := &msp.SerializedIdentity{}
 	proto.Unmarshal(p.Identity, sId)
 	return endorser{

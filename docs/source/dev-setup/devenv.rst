@@ -4,95 +4,167 @@ Setting up the development environment
 Prerequisites
 ~~~~~~~~~~~~~
 
--  Git client, Go, and Docker as described at :doc:`../prereqs`
--  (macOS)
-   `Xcode <https://itunes.apple.com/us/app/xcode/id497799835?mt=12>`__
-   must be installed
--  (macOS) you may need to install gnutar, as macOS comes with bsdtar
-   as the default, but the build uses some gnutar flags. You can use
-   Homebrew to install it as follows:
+In addition to the standard :doc:`../prereqs` for Fabric, the following prerequisites are also required:
 
-::
+-  (macOS) `Xcode Command Line Tools <https://developer.apple.com/downloads/>`__
+-  (All platforms) `SoftHSM <https://github.com/opendnssec/SoftHSMv2>`__ use version 2.5 as 2.6 is not operable in this environment
+-  (All platforms) `jq <https://stedolan.github.io/jq/download/>`__
 
-    brew install gnu-tar
-
--  (macOS) If you install gnutar, you should prepend the "gnubin"
-   directory to the $PATH environment variable with something like:
-
-::
-
-    export PATH=/usr/local/opt/gnu-tar/libexec/gnubin:$PATH
-
--  (macOS) `Libtool <https://www.gnu.org/software/libtool/>`__. You can use
-   Homebrew to install it as follows:
-
-::
-
-    brew install libtool
-
--  (only if using Vagrant) - `Vagrant <https://www.vagrantup.com/>`__ -
-   1.9 or later
--  (only if using Vagrant) -
-   `VirtualBox <https://www.virtualbox.org/>`__ - 5.0 or later
--  BIOS Enabled Virtualization - Varies based on hardware
-
--  Note: The BIOS Enabled Virtualization may be within the CPU or
-   Security settings of the BIOS
-
+For Linux platforms, including WSL2 on Windows, also required are various build tools such as gnu-make and 
+C compiler. On ubuntu and it's derivatives you can install the required toolset by using the command 
+``sudo apt install build-essential``. Other distributions may already have the appropriate tools installed
+or provide a convenient way to install the various build tools.
 
 Steps
 ~~~~~
 
-Set your GOPATH
-^^^^^^^^^^^^^^^
+Installing SoftHSM
+^^^^^^^^^^^^^^^^^^
+Ensure you install ``2.5`` of softhsm, if you are using a distribution package manager such as ``apt`` on ubuntu
+or Homebrew on Mac OS, make sure that it offers this version otherwise you will need to install from source. Version 2.6
+of SoftHSM is known to have problems. Older versions than 2.5 may work however.
 
-Make sure you have properly setup your Host's `GOPATH environment
-variable <https://github.com/golang/go/wiki/GOPATH>`__. This allows for
-both building within the Host and the VM.
+When installing SoftHSM, you should note the path where the shared library ``libsofthsm2.so`` is installed
+you may need to have to provide this later in an environment variable to get the PKCS11 tests to pass.
 
-In case you installed Go into a different location from the standard one
-your Go distribution assumes, make sure that you also set `GOROOT
-environment variable <https://golang.org/doc/install#install>`__.
+Install the Prerequisites using Homebrew on MacOS
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Note to Windows users
-^^^^^^^^^^^^^^^^^^^^^
+For macOS, `Homebrew <https://brew.sh>`__ can be used to manage the
+development prereqs (assuming that you would like to install the latest versions).
+The Xcode command line tools will be installed as part of the Homebrew installation.
 
-If you are running Windows, before running any ``git clone`` commands,
-run the following command.
-
-::
-
-    git config --get core.autocrlf
-
-If ``core.autocrlf`` is set to ``true``, you must set it to ``false`` by
-running
+Once Homebrew is ready, installing the necessary prerequisites is very easy, for example:
 
 ::
 
-    git config --global core.autocrlf false
+    brew install git jq
+    brew install --cask docker
 
-If you continue with ``core.autocrlf`` set to ``true``, the
-``vagrant up`` command will fail with the error:
+Go and SoftHSM are also available from Homebrew, but make sure you install the appropriate versions
 
-``./setup.sh: /bin/bash^M: bad interpreter: No such file or directory``
-
-Cloning the Hyperledger Fabric source
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-First navigate to https://github.com/hyperledger/fabric and fork the
-fabric repository using the fork button in the top-right corner
-
-Since Hyperledger Fabric is written in ``Go``, you'll need to
-clone the forked repository to your $GOPATH/src directory. If your $GOPATH
-has multiple path components, then you will want to use the first one.
-There's a little bit of setup needed:
+Docker Desktop must be launched to complete the installation, so be sure to open
+the application after installing it:
 
 ::
 
-    cd $GOPATH/src
+    open /Applications/Docker.app
+
+Developing on Windows
+~~~~~~~~~~~~~~~~~~~~~
+
+It is recommended that all development be done within your WSL2 Linux distribution.
+
+Clone the Hyperledger Fabric source
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+First navigate to https://github.com/hyperledger/fabric and fork the fabric
+repository using the fork button in the top-right corner. After forking, clone
+the repository.
+
+::
+
     mkdir -p github.com/<your_github_userid>
     cd github.com/<your_github_userid>
     git clone https://github.com/<your_github_userid>/fabric
+
+
+Configure SoftHSM
+^^^^^^^^^^^^^^^^^
+
+A PKCS #11 cryptographic token implementation is required to run the unit
+tests. The PKCS #11 API is used by the bccsp component of Fabric to interact
+with hardware security modules (HSMs) that store cryptographic information and
+perform cryptographic computations.  For test environments, SoftHSM can be used
+to satisfy this requirement.
+
+SoftHSM generally requires additional configuration before it can be used. For
+example, the default configuration will attempt to store token data in a system
+directory that unprivileged users are unable to write to.
+
+SoftHSM configuration typically involves copying ``/etc/softhsm/softhsm2.conf``
+(or ``/usr/local/etc/softhsm/softhsm2.conf`` for macOS) to
+``$HOME/.config/softhsm2/softhsm2.conf`` and changing ``directories.tokendir``
+to an appropriate location. Please see the man page for ``softhsm2.conf`` for
+details.
+
+After SoftHSM has been configured, the following command can be used to
+initialize the token required by the unit tests:
+
+::
+
+    softhsm2-util --init-token --slot 0 --label ForFabric --so-pin 1234 --pin 98765432
+
+If tests are unable to locate the libsofthsm2.so library in your environment,
+specify the library path, the PIN, and the label of your token in the
+appropriate environment variables. For example, on macOS, depending on where the
+library has been installed:
+
+::
+
+    export PKCS11_LIB="/usr/local/Cellar/softhsm/2.6.1/lib/softhsm/libsofthsm2.so"
+    export PKCS11_PIN=98765432
+    export PKCS11_LABEL="ForFabric"
+
+If you installed SoftHSM on ubuntu from source then the environment variables may look like
+
+::
+
+    export PKCS11_LIB="/usr/local/lib/softhsm/libsofthsm2.so"
+    export PKCS11_PIN=98765432
+    export PKCS11_LABEL="ForFabric"
+
+
+The tests don't always clean up after themselves and, over time, this causes
+the PKCS #11 tests to take a long time to run. The easiest way to recover from
+this is to delete and recreate the token.
+
+::
+
+    softhsm2-util --delete-token --token ForFabric
+    softhsm2-util --init-token --slot 0 --label ForFabric --so-pin 1234 --pin 98765432
+
+Debugging with ``pkcs11-spy``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The `OpenSC Project <https://github.com/OpenSC/OpenSC>`__ provides a shared
+library called ``pkcs11-spy`` that logs all interactions between an application
+and a PKCS #11 module. This library can be very useful when troubleshooting
+interactions with a cryptographic token device or service.
+
+Once the library has been installed, configure Fabric to use ``pkcs11-spy`` as
+the PKCS #11 library and set the ``PKCS11SPY`` environment variable to the real
+library. For example:
+
+::
+
+    export PKCS11SPY="/usr/lib/softhsm/libsofthsm2.so"
+    export PKCS11_LIB="/usr/lib/x86_64-linux-gnu/pkcs11/pkcs11-spy.so"
+
+
+Install the development tools
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Once the repository is cloned, you can use ``make`` to install some of the
+tools used in the development environment. By default, these tools will be
+installed into ``$HOME/go/bin``. Please be sure your ``PATH`` includes that
+directory.
+
+::
+
+    make gotools
+
+After installing the tools, the build environment can be verified by running a
+few commands.
+
+::
+
+    make basic-checks integration-test-prereqs
+    ginkgo -r ./integration/nwo
+
+If those commands completely successfully, you're ready to Go!
+
+If you plan to use the Hyperledger Fabric application SDKs then be sure to check out their prerequisites in the Node.js SDK `README <https://github.com/hyperledger/fabric-sdk-node#build-and-test>`__, Java SDK `README <https://github.com/hyperledger/fabric-gateway-java/blob/main/README.md>`__, and Go SDK `README <https://github.com/hyperledger/fabric-sdk-go/blob/main/README.md>`__.
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/

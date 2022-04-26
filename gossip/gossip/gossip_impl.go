@@ -71,7 +71,8 @@ type Node struct {
 // New creates a gossip instance attached to a gRPC server
 func New(conf *Config, s *grpc.Server, sa api.SecurityAdvisor,
 	mcs api.MessageCryptoService, selfIdentity api.PeerIdentityType,
-	secureDialOpts api.PeerSecureDialOpts, gossipMetrics *metrics.GossipMetrics) *Node {
+	secureDialOpts api.PeerSecureDialOpts, gossipMetrics *metrics.GossipMetrics,
+	anchorPeerTracker discovery.AnchorPeerTracker) *Node {
 	var err error
 
 	lgr := util.GetLogger(util.GossipLogger, conf.ID)
@@ -109,7 +110,7 @@ func New(conf *Config, s *grpc.Server, sa api.SecurityAdvisor,
 		gossipMetrics.CommMetrics, commConfig)
 
 	if err != nil {
-		lgr.Error("Failed instntiating communication layer:", err)
+		lgr.Error("Failed instantiating communication layer:", err)
 		return nil
 	}
 
@@ -126,10 +127,14 @@ func New(conf *Config, s *grpc.Server, sa api.SecurityAdvisor,
 		AliveExpirationTimeout:       conf.AliveExpirationTimeout,
 		AliveExpirationCheckInterval: conf.AliveExpirationCheckInterval,
 		ReconnectInterval:            conf.ReconnectInterval,
+		MaxConnectionAttempts:        conf.MaxConnectionAttempts,
+		MsgExpirationFactor:          conf.MsgExpirationFactor,
 		BootstrapPeers:               conf.BootstrapPeers,
 	}
-	g.disc = discovery.NewDiscoveryService(g.selfNetworkMember(), g.discAdapter, g.disSecAdap, g.disclosurePolicy,
-		discoveryConfig)
+	self := g.selfNetworkMember()
+	logger := util.GetLogger(util.DiscoveryLogger, self.InternalEndpoint)
+	g.disc = discovery.NewDiscoveryService(self, g.discAdapter, g.disSecAdap, g.disclosurePolicy,
+		discoveryConfig, anchorPeerTracker, logger)
 	g.logger.Infof("Creating gossip service with self membership of %s", g.selfNetworkMember())
 
 	g.certPuller = g.createCertStorePuller()
@@ -187,7 +192,7 @@ func (g *Node) JoinChan(joinMsg api.JoinChannelMessage, channelID common.Channel
 	// joinMsg is supposed to have been already verified
 	g.chanState.joinChannel(joinMsg, channelID, g.gossipMetrics.MembershipMetrics)
 
-	g.logger.Info("Joining gossip network of channel", string(channelID), "with", len(joinMsg.Members()), "organizations")
+	g.logger.Info("Joining gossip network of channel", channelID, "with", len(joinMsg.Members()), "organizations")
 	for _, org := range joinMsg.Members() {
 		g.learnAnchorPeers(string(channelID), org, joinMsg.AnchorPeersOf(org))
 	}
@@ -211,23 +216,23 @@ func (g *Node) SuspectPeers(isSuspected api.PeerSuspector) {
 
 func (g *Node) learnAnchorPeers(channel string, orgOfAnchorPeers api.OrgIdentityType, anchorPeers []api.AnchorPeer) {
 	if len(anchorPeers) == 0 {
-		g.logger.Info("No configured anchor peers of", string(orgOfAnchorPeers), "for channel", channel, "to learn about")
+		g.logger.Infof("No configured anchor peers of %s for channel %s to learn about", string(orgOfAnchorPeers), channel)
 		return
 	}
-	g.logger.Info("Learning about the configured anchor peers of", string(orgOfAnchorPeers), "for channel", channel, ":", anchorPeers)
+	g.logger.Infof("Learning about the configured anchor peers of %s for channel %s: %v", string(orgOfAnchorPeers), channel, anchorPeers)
 	for _, ap := range anchorPeers {
 		if ap.Host == "" {
-			g.logger.Warning("Got empty hostname, skipping connecting to anchor peer", ap)
+			g.logger.Warningf("Got empty hostname for channel %s, skipping connecting to anchor peer %v", channel, ap)
 			continue
 		}
 		if ap.Port == 0 {
-			g.logger.Warning("Got invalid port (0), skipping connecting to anchor peer", ap)
+			g.logger.Warningf("Got invalid port (0) for channel %s, skipping connecting to anchor peer %v", channel, ap)
 			continue
 		}
 		endpoint := net.JoinHostPort(ap.Host, fmt.Sprintf("%d", ap.Port))
 		// Skip connecting to self
 		if g.selfNetworkMember().Endpoint == endpoint || g.selfNetworkMember().InternalEndpoint == endpoint {
-			g.logger.Info("Anchor peer with same endpoint, skipping connecting to myself")
+			g.logger.Infof("Anchor peer for channel %s with same endpoint, skipping connecting to myself", channel)
 			continue
 		}
 
@@ -239,12 +244,12 @@ func (g *Node) learnAnchorPeers(channel string, orgOfAnchorPeers api.OrgIdentity
 		identifier := func() (*discovery.PeerIdentification, error) {
 			remotePeerIdentity, err := g.comm.Handshake(&comm.RemotePeer{Endpoint: endpoint})
 			if err != nil {
-				g.logger.Warningf("Deep probe of %s failed: %s", endpoint, err)
+				g.logger.Warningf("Deep probe of %s for channel %s failed: %s", endpoint, channel, err)
 				return nil, err
 			}
 			isAnchorPeerInMyOrg := bytes.Equal(g.selfOrg, g.secAdvisor.OrgByPeerIdentity(remotePeerIdentity))
 			if bytes.Equal(orgOfAnchorPeers, g.selfOrg) && !isAnchorPeerInMyOrg {
-				err := errors.Errorf("Anchor peer %s isn't in our org, but is claimed to be", endpoint)
+				err := errors.Errorf("Anchor peer %s for channel %s isn't in our org, but is claimed to be", endpoint, channel)
 				g.logger.Warningf("%s", err)
 				return nil, err
 			}
@@ -259,7 +264,8 @@ func (g *Node) learnAnchorPeers(channel string, orgOfAnchorPeers api.OrgIdentity
 		}
 
 		g.disc.Connect(discovery.NetworkMember{
-			InternalEndpoint: endpoint, Endpoint: endpoint}, identifier)
+			InternalEndpoint: endpoint, Endpoint: endpoint,
+		}, identifier)
 	}
 }
 
@@ -618,14 +624,14 @@ func (g *Node) SendByCriteria(msg *protoext.SignedGossipMessage, criteria SendCr
 	if len(criteria.Channel) > 0 {
 		gc := g.chanState.getGossipChannelByChainID(criteria.Channel)
 		if gc == nil {
-			return fmt.Errorf("Requested to Send for channel %s, but no such channel exists", string(criteria.Channel))
+			return fmt.Errorf("requested to Send for channel %s, but no such channel exists", criteria.Channel)
 		}
 		membership = gc.GetPeers()
 	}
 
 	peers2send := filter.SelectPeers(criteria.MaxPeers, membership, criteria.IsEligible)
 	if len(peers2send) < criteria.MinAck {
-		return fmt.Errorf("Requested to send to at least %d peers, but know only of %d suitable peers", criteria.MinAck, len(peers2send))
+		return fmt.Errorf("requested to send to at least %d peers, but know only of %d suitable peers", criteria.MinAck, len(peers2send))
 	}
 
 	results := g.comm.SendWithAck(msg, criteria.Timeout, criteria.MinAck, peers2send...)
@@ -737,7 +743,7 @@ func (g *Node) SelfChannelInfo(chain common.ChannelID) *protoext.SignedGossipMes
 func (g *Node) PeerFilter(channel common.ChannelID, messagePredicate api.SubChannelSelectionCriteria) (filter.RoutingFilter, error) {
 	gc := g.chanState.getGossipChannelByChainID(channel)
 	if gc == nil {
-		return nil, errors.Errorf("Channel %s doesn't exist", string(channel))
+		return nil, errors.Errorf("Channel %s doesn't exist", channel)
 	}
 	return gc.PeerFilter(messagePredicate), nil
 }
@@ -1092,7 +1098,7 @@ func (g *Node) createCertStorePuller() pull.Mediator {
 		if identityMsg == nil || identityMsg.PkiId == nil {
 			return ""
 		}
-		return fmt.Sprintf("%s", string(identityMsg.PkiId))
+		return string(identityMsg.PkiId)
 	}
 	certConsumer := func(msg *protoext.SignedGossipMessage) {
 		idMsg := msg.GetPeerIdentity()
@@ -1172,7 +1178,6 @@ func (g *Node) connect2BootstrapPeers() {
 			Endpoint:         endpoint,
 		}, identifier)
 	}
-
 }
 
 func (g *Node) hasExternalEndpoint(PKIID common.PKIidType) bool {

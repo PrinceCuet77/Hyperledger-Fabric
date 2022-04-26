@@ -18,11 +18,13 @@ import (
 	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/common/flogging"
 	cl "github.com/hyperledger/fabric/common/ledger"
+	"github.com/hyperledger/fabric/common/ledger/blkstorage/blkstoragetest"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
+	"github.com/hyperledger/fabric/common/ledger/testutil"
 	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 var genesisBlock = protoutil.NewBlock(0, nil)
@@ -39,13 +41,13 @@ type testEnv struct {
 
 func initialize(t *testing.T) (*testEnv, *FileLedger) {
 	name, err := ioutil.TempDir("", "hyperledger_fabric")
-	assert.NoError(t, err, "Error creating temp dir: %s", err)
+	require.NoError(t, err, "Error creating temp dir: %s", err)
 
 	p, err := New(name, &disabled.Provider{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	flf := p.(*fileLedgerFactory)
 	fl, err := flf.GetOrCreate("testchannelid")
-	assert.NoError(t, err, "Error GetOrCreate channel")
+	require.NoError(t, err, "Error GetOrCreate channel")
 	fl.Append(genesisBlock)
 	return &testEnv{location: name, t: t, flf: flf}, fl.(*FileLedger)
 }
@@ -129,11 +131,11 @@ func TestInitialization(t *testing.T) {
 	tev, fl := initialize(t)
 	defer tev.tearDown()
 
-	assert.Equal(t, uint64(1), fl.Height(), "Block height should be 1")
+	require.Equal(t, uint64(1), fl.Height(), "Block height should be 1")
 
 	block := blockledger.GetBlock(fl, 0)
-	assert.NotNil(t, block, "Error retrieving genesis block")
-	assert.Equal(t, protoutil.BlockHeaderHash(genesisBlock.Header), protoutil.BlockHeaderHash(block.Header), "Block hashes did no match")
+	require.NotNil(t, block, "Error retrieving genesis block")
+	require.Equal(t, protoutil.BlockHeaderHash(genesisBlock.Header), protoutil.BlockHeaderHash(block.Header), "Block hashes did no match")
 }
 
 func TestReinitialization(t *testing.T) {
@@ -149,32 +151,32 @@ func TestReinitialization(t *testing.T) {
 
 	fl, err := tev.flf.GetOrCreate("testchannelid")
 	ledger1, ok := fl.(*FileLedger)
-	assert.NoError(t, err, "Expected to successfully get test channel")
-	assert.Equal(t, 1, len(tev.flf.ChannelIDs()), "Exptected not new channel to be created")
-	assert.True(t, ok, "Exptected type assertion to succeed")
-	assert.Equal(t, uint64(2), ledger1.Height(), "Block height should be 2. Got %v", ledger1.Height())
+	require.NoError(t, err, "Expected to successfully get test channel")
+	require.Equal(t, 1, len(tev.flf.ChannelIDs()), "Exptected not new channel to be created")
+	require.True(t, ok, "Exptected type assertion to succeed")
+	require.Equal(t, uint64(2), ledger1.Height(), "Block height should be 2. Got %v", ledger1.Height())
 
 	// shut down the ledger provider
 	tev.shutDown()
 
 	// re-initialize the ledger provider (not the test ledger itself!)
 	provider2, err := New(tev.location, &disabled.Provider{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// assert expected ledgers exist
 	channels := provider2.ChannelIDs()
-	assert.Equal(t, 1, len(channels), "Should have recovered the channel")
+	require.Equal(t, 1, len(channels), "Should have recovered the channel")
 
 	// get the existing test channel ledger
 	ledger2, err := provider2.GetOrCreate(channels[0])
-	assert.NoError(t, err, "Unexpected error: %s", err)
+	require.NoError(t, err, "Unexpected error: %s", err)
 
 	fl = ledger2.(*FileLedger)
-	assert.Equal(t, uint64(2), fl.Height(), "Block height should be 2. Got %v", fl.Height())
+	require.Equal(t, uint64(2), fl.Height(), "Block height should be 2. Got %v", fl.Height())
 
 	block := blockledger.GetBlock(fl, 1)
-	assert.NotNil(t, block, "Error retrieving block 1")
-	assert.Equal(t, protoutil.BlockHeaderHash(b1.Header), protoutil.BlockHeaderHash(block.Header), "Block hashes did no match")
+	require.NotNil(t, block, "Error retrieving block 1")
+	require.Equal(t, protoutil.BlockHeaderHash(b1.Header), protoutil.BlockHeaderHash(block.Header), "Block hashes did no match")
 }
 
 func TestAddition(t *testing.T) {
@@ -185,11 +187,11 @@ func TestAddition(t *testing.T) {
 	envelope := getSampleEnvelopeWithSignatureHeader()
 	b1 := blockledger.CreateNextBlock(fl, []*cb.Envelope{envelope})
 	fl.Append(b1)
-	assert.Equal(t, uint64(2), fl.Height(), "Block height should be 2")
+	require.Equal(t, uint64(2), fl.Height(), "Block height should be 2")
 
 	block := blockledger.GetBlock(fl, 1)
-	assert.NotNil(t, block, "Error retrieving genesis block")
-	assert.Equal(t, prevHash, block.Header.PreviousHash, "Block hashes did no match")
+	require.NotNil(t, block, "Error retrieving genesis block")
+	require.Equal(t, prevHash, block.Header.PreviousHash, "Block hashes did no match")
 }
 
 func TestRetrieval(t *testing.T) {
@@ -200,15 +202,15 @@ func TestRetrieval(t *testing.T) {
 	fl.Append(b1)
 	it, num := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Oldest{}})
 	defer it.Close()
-	assert.Zero(t, num, "Expected genesis block iterator, but got %d", num)
+	require.Zero(t, num, "Expected genesis block iterator, but got %d", num)
 
 	block, status := it.Next()
-	assert.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the genesis block")
-	assert.Zero(t, block.Header.Number, "Expected to successfully retrieve the genesis block")
+	require.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the genesis block")
+	require.Zero(t, block.Header.Number, "Expected to successfully retrieve the genesis block")
 
 	block, status = it.Next()
-	assert.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the second block")
-	assert.Equal(
+	require.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the second block")
+	require.Equal(
 		t,
 		uint64(1),
 		block.Header.Number,
@@ -223,15 +225,15 @@ func TestBlockedRetrieval(t *testing.T) {
 	if num != 1 {
 		t.Fatalf("Expected block iterator at 1, but got %d", num)
 	}
-	assert.Equal(t, uint64(1), num, "Expected block iterator at 1, but got %d", num)
+	require.Equal(t, uint64(1), num, "Expected block iterator at 1, but got %d", num)
 
 	envelope := getSampleEnvelopeWithSignatureHeader()
 	b1 := blockledger.CreateNextBlock(fl, []*cb.Envelope{envelope})
 	fl.Append(b1)
 
 	block, status := it.Next()
-	assert.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the second block")
-	assert.Equal(
+	require.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the second block")
+	require.Equal(
 		t,
 		uint64(1),
 		block.Header.Number,
@@ -241,8 +243,74 @@ func TestBlockedRetrieval(t *testing.T) {
 	fl.Append(b2)
 
 	block, status = it.Next()
-	assert.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the third block")
-	assert.Equal(t, uint64(2), block.Header.Number, "Expected to successfully retrieve the third block")
+	require.Equal(t, cb.Status_SUCCESS, status, "Expected to successfully read the third block")
+	require.Equal(t, uint64(2), block.Header.Number, "Expected to successfully retrieve the third block")
+
+	// verify NextCommit seek position
+	it2, num2 := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_NextCommit{NextCommit: &ab.SeekNextCommit{}}})
+	require.Equal(t, uint64(3), num2)
+	defer it2.Close()
+
+	b3 := blockledger.CreateNextBlock(fl, []*cb.Envelope{envelope})
+	fl.Append(b3)
+
+	block, status = it.Next()
+	require.Equal(t, cb.Status_SUCCESS, status)
+	require.Equal(t, uint64(3), block.Header.Number)
+}
+
+func TestBlockRetrievalWithSnapshot(t *testing.T) {
+	numBlocks := 5
+	// create an extra block to add later for iterator.Next testing
+	blocks := testutil.ConstructTestBlocks(t, numBlocks+1)
+
+	blockStore, cleanup := blkstoragetest.BootstrapBlockstoreFromSnapshot(t, "blockretrievalwithsnapshot", blocks[:numBlocks])
+	defer cleanup()
+
+	fl := NewFileLedger(blockStore)
+
+	// verify lastBlockInSnapshot, which should be numBlocks - 1
+	bcInfo, err := fl.blockStore.GetBlockchainInfo()
+	require.NoError(t, err)
+	require.Equal(t, uint64(numBlocks-1), bcInfo.BootstrappingSnapshotInfo.LastBlockInSnapshot)
+
+	// verify iterator startingNum for Newest, NextCommit, and Specified
+	it, startingNum := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Newest{}})
+	defer it.Close()
+	require.Equal(t, uint64(numBlocks), startingNum)
+
+	it2, startingNum2 := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_NextCommit{}})
+	defer it2.Close()
+	require.Equal(t, uint64(numBlocks), startingNum2)
+
+	it3, startingNum3 := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: uint64(numBlocks)}}})
+	defer it3.Close()
+	require.Equal(t, uint64(numBlocks), startingNum3)
+
+	it4, _ := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: uint64(numBlocks - 1)}}})
+	defer it4.Close()
+	require.Equal(t, &blockledger.NotFoundErrorIterator{}, it4)
+
+	it5, _ := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: uint64(numBlocks + 1)}}})
+	defer it5.Close()
+	require.Equal(t, &blockledger.NotFoundErrorIterator{}, it4)
+
+	// add a block and verify iterator.Next
+	nextBlk := blocks[numBlocks]
+	err = fl.Append(nextBlk)
+	require.NoError(t, err)
+
+	blk, status := it.Next()
+	require.Equal(t, cb.Status_SUCCESS, status)
+	require.Equal(t, nextBlk, blk)
+
+	blk, status = it2.Next()
+	require.Equal(t, cb.Status_SUCCESS, status)
+	require.Equal(t, nextBlk, blk)
+
+	blk, status = it3.Next()
+	require.Equal(t, cb.Status_SUCCESS, status)
+	require.Equal(t, nextBlk, blk)
 }
 
 func TestBlockstoreError(t *testing.T) {
@@ -257,14 +325,14 @@ func TestBlockstoreError(t *testing.T) {
 			},
 			signal: make(chan struct{}),
 		}
-		assert.Panics(
+		require.Panics(
 			t,
 			func() {
 				fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Newest{}})
 			},
 			"Expected Iterator() to panic if blockstore operation fails")
 
-		assert.Panics(
+		require.Panics(
 			t,
 			func() { fl.Height() },
 			"Expected Height() to panic if blockstore operation fails ")
@@ -281,7 +349,7 @@ func TestBlockstoreError(t *testing.T) {
 		}
 		it, _ := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: 42}}})
 		defer it.Close()
-		assert.IsType(
+		require.IsType(
 			t,
 			&blockledger.NotFoundErrorIterator{},
 			it,
@@ -304,7 +372,7 @@ func TestBlockstoreError(t *testing.T) {
 		it, _ := fl.Iterator(&ab.SeekPosition{Type: &ab.SeekPosition_Oldest{}})
 		defer it.Close()
 		_, status := it.Next()
-		assert.Equal(t, cb.Status_SERVICE_UNAVAILABLE, status, "Expected service unavailable error")
+		require.Equal(t, cb.Status_SERVICE_UNAVAILABLE, status, "Expected service unavailable error")
 	}
 }
 

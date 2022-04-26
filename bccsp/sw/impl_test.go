@@ -8,7 +8,6 @@ package sw
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -31,7 +30,7 @@ import (
 	"github.com/hyperledger/fabric/bccsp/signer"
 	"github.com/hyperledger/fabric/bccsp/sw/mocks"
 	"github.com/hyperledger/fabric/bccsp/utils"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -47,11 +46,11 @@ type testConfig struct {
 
 func (tc testConfig) Provider(t *testing.T) (bccsp.BCCSP, bccsp.KeyStore, func()) {
 	td, err := ioutil.TempDir(tempDir, "test")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	ks, err := NewFileBasedKeyStore(nil, td, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	p, err := NewWithParams(tc.securityLevel, tc.hashFamily, ks)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return p, ks, func() { os.RemoveAll(td) }
 }
 
@@ -209,7 +208,6 @@ func TestKeyGenECDSAOpts(t *testing.T) {
 	if ecdsaKey.D.Cmp(big.NewInt(0)) == 0 {
 		t.Fatal("P256 generated key in invalid. Private key must be different from 0.")
 	}
-
 }
 
 func TestKeyGenAESOpts(t *testing.T) {
@@ -697,7 +695,7 @@ func TestECDSAKeyImportFromECDSAPublicKey(t *testing.T) {
 		t.Fatalf("Failed getting ECDSA raw public key [%s]", err)
 	}
 
-	pub, err := utils.DERToPublicKey(pkRaw)
+	pub, err := derToPublicKey(pkRaw)
 	if err != nil {
 		t.Fatalf("Failed converting raw to ecdsa.PublicKey [%s]", err)
 	}
@@ -745,7 +743,7 @@ func TestECDSAKeyImportFromECDSAPrivateKey(t *testing.T) {
 	}
 
 	// Import the ecdsa.PrivateKey
-	priv, err := utils.PrivateKeyToDER(key)
+	priv, err := privateKeyToDER(key)
 	if err != nil {
 		t.Fatalf("Failed converting raw to ecdsa.PrivateKey [%s]", err)
 	}
@@ -759,13 +757,12 @@ func TestECDSAKeyImportFromECDSAPrivateKey(t *testing.T) {
 	}
 
 	// Import the ecdsa.PublicKey
-	pub, err := utils.PublicKeyToDER(&key.PublicKey)
+	pub, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
 		t.Fatalf("Failed converting raw to ecdsa.PublicKey [%s]", err)
 	}
 
 	pk, err := provider.KeyImport(pub, &bccsp.ECDSAPKIXPublicKeyImportOpts{Temporary: false})
-
 	if err != nil {
 		t.Fatalf("Failed importing ECDSA public key [%s]", err)
 	}
@@ -879,7 +876,7 @@ func TestKeyImportFromX509ECDSAPublicKey(t *testing.T) {
 		t.Fatalf("Failed getting ECDSA raw public key [%s]", err)
 	}
 
-	pub, err := utils.DERToPublicKey(pkRaw)
+	pub, err := derToPublicKey(pkRaw)
 	if err != nil {
 		t.Fatalf("Failed converting raw to ECDSA.PublicKey [%s]", err)
 	}
@@ -889,14 +886,13 @@ func TestKeyImportFromX509ECDSAPublicKey(t *testing.T) {
 		t.Fatalf("Failed generating self-signed certificate [%s]", err)
 	}
 
-	cert, err := utils.DERToX509Certificate(certRaw)
+	cert, err := x509.ParseCertificate(certRaw)
 	if err != nil {
 		t.Fatalf("Failed generating X509 certificate object from raw [%s]", err)
 	}
 
 	// Import the certificate's public key
 	pk2, err := provider.KeyImport(cert, &bccsp.X509PublicKeyImportOpts{Temporary: false})
-
 	if err != nil {
 		t.Fatalf("Failed importing ECDSA public key [%s]", err)
 	}
@@ -963,7 +959,6 @@ func TestECDSASignatureEncoding(t *testing.T) {
 		t.Fatalf("Unmarshalling should fail for [% x]", v)
 	}
 	t.Logf("Unmarshalling correctly failed for [% x] [%s]", v, err)
-
 }
 
 func TestECDSALowS(t *testing.T) {
@@ -1172,7 +1167,6 @@ func TestHMACKeyDerivOverAES256Key(t *testing.T) {
 	}
 
 	hmcaedKey, err := provider.KeyDeriv(k, &bccsp.HMACDeriveKeyOpts{Temporary: false, Arg: []byte{1}})
-
 	if err != nil {
 		t.Fatalf("Failed HMACing AES_256 key [%s]", err)
 	}
@@ -1345,15 +1339,15 @@ func TestAddWrapper(t *testing.T) {
 	defer cleanup()
 
 	sw, ok := p.(*CSP)
-	assert.True(t, ok)
+	require.True(t, ok)
 
 	tester := func(o interface{}, getter func(t reflect.Type) (interface{}, bool)) {
 		tt := reflect.TypeOf(o)
 		err := sw.AddWrapper(tt, o)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		o2, ok := getter(tt)
-		assert.True(t, ok)
-		assert.Equal(t, o, o2)
+		require.True(t, ok)
+		require.Equal(t, o, o2)
 	}
 
 	tester(&mocks.KeyGenerator{}, func(t reflect.Type) (interface{}, bool) { o, ok := sw.KeyGenerators[t]; return o, ok })
@@ -1367,33 +1361,6 @@ func TestAddWrapper(t *testing.T) {
 
 	// Add invalid wrapper
 	err := sw.AddWrapper(reflect.TypeOf(cleanup), cleanup)
-	assert.Error(t, err)
-	assert.Equal(t, err.Error(), "wrapper type not valid, must be on of: KeyGenerator, KeyDeriver, KeyImporter, Encryptor, Decryptor, Signer, Verifier, Hasher")
-}
-
-func getCryptoHashIndex(t *testing.T) crypto.Hash {
-	switch currentTestConfig.hashFamily {
-	case "SHA2":
-		switch currentTestConfig.securityLevel {
-		case 256:
-			return crypto.SHA256
-		case 384:
-			return crypto.SHA384
-		default:
-			t.Fatalf("Invalid security level [%d]", currentTestConfig.securityLevel)
-		}
-	case "SHA3":
-		switch currentTestConfig.securityLevel {
-		case 256:
-			return crypto.SHA3_256
-		case 384:
-			return crypto.SHA3_384
-		default:
-			t.Fatalf("Invalid security level [%d]", currentTestConfig.securityLevel)
-		}
-	default:
-		t.Fatalf("Invalid hash family [%s]", currentTestConfig.hashFamily)
-	}
-
-	return crypto.SHA3_256
+	require.Error(t, err)
+	require.Equal(t, err.Error(), "wrapper type not valid, must be on of: KeyGenerator, KeyDeriver, KeyImporter, Encryptor, Decryptor, Signer, Verifier, Hasher")
 }

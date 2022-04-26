@@ -10,15 +10,15 @@ values.
 
 In this topic, we're going to cover:
 
-* [What is a Ledger?](#what-is-a-ledger?)
+* [What is a Ledger?](#what-is-a-ledger)
 * [Storing facts about business objects](#ledgers-facts-and-states)
-* [A blockchain ledger](#a-blockchain-ledger)
+* [A blockchain ledger](#the-ledger)
 * [The world state](#world-state)
 * [The blockchain data structure](#blockchain)
 * [How blocks are stored in a blockchain](#blocks)
 * [Transactions](#transactions)
 * [World state database options](#world-state-database-options)
-* [The **Fabcar** example ledger](#example-ledger-fabcar)
+* [The **Basic** example ledger](#example-ledger-basic-asset-transfer)
 * [Ledgers and namespaces](#namespaces)
 * [Ledgers and channels](#channels)
 
@@ -40,7 +40,7 @@ is motivated by these same two concerns -- to present the current value of a set
 of ledger states, and to capture the history of the transactions that determined
 these states.
 
-## Ledgers, Facts and States
+## Ledgers, Facts, and States
 
 A ledger doesn't literally store business objects -- instead it stores **facts**
 about those objects. When we say "we store a business object in a ledger" what
@@ -74,7 +74,7 @@ and we'll see later how Hyperledger Fabric provides flexibility in this regard.
 The world state can change frequently, as states can be created, updated and deleted.
 
 Secondly, there's a **blockchain** -- a transaction log that records all the
-changes that have resulted in the current the world state. Transactions are
+changes that have resulted in the current world state. Transactions are
 collected inside blocks that are appended to the blockchain -- enabling you to
 understand the history of changes that have resulted in the current world state.
 The blockchain data structure is very different to the world state because once
@@ -330,23 +330,23 @@ graph store, or a temporal database.  This provides great flexibility in the
 types of ledger states that can be efficiently accessed, allowing Hyperledger
 Fabric to address many different types of problems.
 
-## Example Ledger: fabcar
+## Example Ledger: Basic Asset Transfer 
 
 As we end this topic on the ledger, let's have a look at a sample ledger. If
-you've run the [fabcar sample application](../write_first_app.html), then you've
+you've run the [basic asset transfer sample application](../write_first_app.html), then you've
 created this ledger.
 
-The fabcar sample app creates a set of 10 cars each with a unique identity; a
-different color, make, model and owner. Here's what the ledger looks like after
-the first four cars have been created.
+The basic sample app creates a set of 6 assets each with a unique identity; a
+different color, size, owner, and appraised value. Here's what the ledger looks like after
+the first four assets have been created.
 
 ![ledger.transaction](./ledger.diagram.6.png) *The ledger, L, comprises a world
-state, W and a blockchain, B. W contains four states with keys: CAR0, CAR1, CAR2
-and CAR3. B contains two blocks, 0 and 1. Block 1 contains four transactions:
+state, W and a blockchain, B. W contains four states with keys: ASSET1, ASSET2, ASSET3,
+and ASSET4. B contains two blocks, 0 and 1. Block 1 contains four transactions:
 T1, T2, T3, T4.*
 
-We can see that the world state contains states that correspond to CAR0, CAR1,
-CAR2 and CAR3. CAR0 has a value which indicates that it is a blue Toyota Prius,
+We can see that the world state contains states that correspond to ASSET1,
+ASSET2, ASSET3, and ASSET4. ASSET1 has a value which indicates that it is a blue with size 5,
 currently owned by Tomoko, and we can see similar states and values for the
 other cars. Moreover, we can see that all car states are at version number 0,
 indicating that this is their starting version number -- they have not been
@@ -355,7 +355,7 @@ updated since they were created.
 We can also see that the blockchain contains two blocks.  Block 0 is the genesis
 block, though it does not contain any transactions that relate to cars. Block 1
 however, contains transactions T1, T2, T3, T4 and these correspond to
-transactions that created the initial states for CAR0 to CAR3 in the world
+transactions that created the initial states for ASSET1 to ASSET4 in the world
 state. We can see that block 1 is linked to block 0.
 
 We have not shown the other fields in the blocks or transactions, specifically
@@ -375,7 +375,7 @@ the same chaincode can access a given namespace.
 
 A blockchain is not namespaced. It contains transactions from many different
 smart contract namespaces. You can read more about chaincode namespaces in this
-[topic](./developapps/chaincodenamespace.html).
+[topic](../developapps/chaincodenamespace.html).
 
 Let's now look at how the concept of a namespace is applied within a Hyperledger
 Fabric channel.
@@ -389,7 +389,7 @@ smart contracts to communicate between channels so that ledger information can
 be accessed between them.
 
 You can read more about how ledgers work with channels in this
-[topic](./developapps/chaincodenamespace.html#channel).
+[topic](../developapps/chaincodenamespace.html#channels).
 
 
 ## More information

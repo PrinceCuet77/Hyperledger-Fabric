@@ -8,6 +8,8 @@ Starting with Fabric 2.0, External Builders and Launchers address these limitati
 
 Note that if no configured external builder claims a chaincode package, the peer will attempt to process the package as if it were created with the standard Fabric packaging tools such as the peer CLI or node SDK.
 
+**Note:** This is an advanced feature which will likely require custom packaging of the peer image with everything your builders and launchers depend on unless your builders and launchers are simple enough, such as those used in the [basic asset transfer external chaincode Fabric sample](https://github.com/hyperledger/fabric-samples/blob/{BRANCH}/asset-transfer-basic/chaincode-external). For example, the following samples use `go` and `bash`, which are not included in the current official `fabric-peer` image.
+
 ## External builder model
 
 Hyperledger Fabric External Builders and Launchers are loosely based on Heroku [Buildpacks](https://devcenter.heroku.com/articles/buildpack-api). A buildpack implementation is simply a collection of programs or scripts that transform application artifacts into something that can run. The buildpack model has been adapted for chaincode packages and extended to support chaincode execution and discovery.
@@ -163,7 +165,7 @@ exec "$BUILD_OUTPUT_DIR/chaincode" -peer.address="$(jq -r .peer_address "$ARTIFA
 
 ## Configuring external builders and launchers
 
-Configuring the peer to use external builders involves adding an externalBuilder element under the chaincode configuration block in the  `core.yaml` that defines external builders. Each external builderdefinition must include a name (used for logging) and the path to parent of the `bin` directory containing the builder scripts.
+Configuring the peer to use external builders involves adding an externalBuilder element under the chaincode configuration block in the  `core.yaml` that defines external builders. Each external builder definition must include a name (used for logging) and the path to parent of the `bin` directory containing the builder scripts.
 
 An optional list of environment variable names to propagate from the peer when invoking the external builder scripts can also be provided.
 
@@ -174,7 +176,7 @@ chaincode:
   externalBuilders:
   - name: my-golang-builder
     path: /builders/golang
-    environmentWhitelist:
+    propagateEnvironment:
     - GOPROXY
     - GONOPROXY
     - GOSUMDB
@@ -183,7 +185,7 @@ chaincode:
     path: /builders/binary
 ```
 
-In this example, the implementation of "my-golang-builder" is contained within the `/builders/golang` directory and its build scripts are located in `/builders/golang/bin`. When the peer invokes any of the build scripts associated with "my-golang-builder", it will propagate only the values of the environment variables in the whitelist.
+In this example, the implementation of "my-golang-builder" is contained within the `/builders/golang` directory and its build scripts are located in `/builders/golang/bin`. When the peer invokes any of the build scripts associated with "my-golang-builder", it will propagate only the values of the environment variables in the `propagateEnvironment`.
 
 Note: The following environment variables are always propagated to external builders:
 
@@ -195,6 +197,8 @@ Note: The following environment variables are always propagated to external buil
 When an `externalBuilder` configuration is present, the peer will iterate over the list of builders in the order provided, invoking `bin/detect` until one completes successfully. If no builder completes `detect` successfully, the peer will fallback to using the legacy Docker build process implemented within the peer. This means that external builders are completely optional.
 
 In the example above, the peer will attempt to use "my-golang-builder", followed by "noop-builder", and finally the peer internal build process.
+
+If you do not need to fallback to the legacy Docker build process for your chaincodes, you can remove the Docker endpoint from the peer `core.yaml` `vm.endpoint` configuration. This will also remove the Docker daemon health check.
 
 ## Chaincode packages
 

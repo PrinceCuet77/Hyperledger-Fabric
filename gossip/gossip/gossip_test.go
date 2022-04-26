@@ -22,7 +22,6 @@ import (
 	proto "github.com/hyperledger/fabric-protos-go/gossip"
 	"github.com/hyperledger/fabric/bccsp/factory"
 	"github.com/hyperledger/fabric/common/metrics/disabled"
-	corecomm "github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/common"
@@ -33,7 +32,8 @@ import (
 	"github.com/hyperledger/fabric/gossip/metrics/mocks"
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/hyperledger/fabric/gossip/util"
-	"github.com/stretchr/testify/assert"
+	corecomm "github.com/hyperledger/fabric/internal/pkg/comm"
+	"github.com/stretchr/testify/require"
 )
 
 var timeout = time.Second * time.Duration(180)
@@ -41,20 +41,21 @@ var timeout = time.Second * time.Duration(180)
 func TestMain(m *testing.M) {
 	util.SetupTestLogging()
 	rand.Seed(int64(time.Now().Second()))
-	discovery.SetMaxConnAttempts(5)
 	factory.InitFactories(nil)
 	os.Exit(m.Run())
 }
 
-var aliveTimeInterval = 1000 * time.Millisecond
-var discoveryConfig = discovery.DiscoveryConfig{
-	AliveTimeInterval:            aliveTimeInterval,
-	AliveExpirationTimeout:       10 * aliveTimeInterval,
-	AliveExpirationCheckInterval: aliveTimeInterval,
-	ReconnectInterval:            aliveTimeInterval,
-}
-
-var expirationTimes = map[string]time.Time{}
+var (
+	aliveTimeInterval = 1000 * time.Millisecond
+	discoveryConfig   = discovery.DiscoveryConfig{
+		AliveTimeInterval:            aliveTimeInterval,
+		AliveExpirationTimeout:       10 * aliveTimeInterval,
+		AliveExpirationCheckInterval: aliveTimeInterval,
+		ReconnectInterval:            aliveTimeInterval,
+		MaxConnectionAttempts:        5,
+		MsgExpirationFactor:          discovery.DefMsgExpirationFactor,
+	}
+)
 
 var orgInChannelA = api.OrgIdentityType("ORG1")
 
@@ -109,6 +110,7 @@ type naiveCryptoService struct {
 	allowedPkiIDS       map[string]struct{}
 	revokedPkiIDS       map[string]struct{}
 	expirationTimesLock *sync.RWMutex
+	expirationTimes     map[string]time.Time
 }
 
 func (cs *naiveCryptoService) OrgByPeerIdentity(api.PeerIdentityType) api.OrgIdentityType {
@@ -120,14 +122,13 @@ func (cs *naiveCryptoService) Expiration(peerIdentity api.PeerIdentityType) (tim
 		cs.expirationTimesLock.RLock()
 		defer cs.expirationTimesLock.RUnlock()
 	}
-	if exp, exists := expirationTimes[string(peerIdentity)]; exists {
+	if exp, exists := cs.expirationTimes[string(peerIdentity)]; exists {
 		return exp, nil
 	}
 	return time.Now().Add(time.Hour), nil
 }
 
-type orgCryptoService struct {
-}
+type orgCryptoService struct{}
 
 // OrgByPeerIdentity returns the OrgIdentityType
 // of a given peer identity
@@ -215,7 +216,6 @@ func bootPeersWithPorts(ports ...int) []string {
 func newGossipInstanceWithGrpcMcsMetrics(id int, port int, gRPCServer *corecomm.GRPCServer, certs *common.TLSCertificates,
 	secureDialOpts api.PeerSecureDialOpts, maxMsgCount int, mcs api.MessageCryptoService,
 	metrics *metrics.GossipMetrics, bootPorts ...int) *gossipGRPC {
-
 	conf := &Config{
 		BootstrapPeers:               bootPeersWithPorts(bootPorts...),
 		ID:                           fmt.Sprintf("p%d", id),
@@ -245,10 +245,12 @@ func newGossipInstanceWithGrpcMcsMetrics(id int, port int, gRPCServer *corecomm.
 		AliveExpirationTimeout:       discoveryConfig.AliveExpirationTimeout,
 		AliveExpirationCheckInterval: discoveryConfig.AliveExpirationCheckInterval,
 		ReconnectInterval:            discoveryConfig.ReconnectInterval,
+		MaxConnectionAttempts:        discoveryConfig.MaxConnectionAttempts,
+		MsgExpirationFactor:          discoveryConfig.MsgExpirationFactor,
 	}
 	selfID := api.PeerIdentityType(conf.InternalEndpoint)
 	g := New(conf, gRPCServer.Server(), &orgCryptoService{}, mcs, selfID,
-		secureDialOpts, metrics)
+		secureDialOpts, metrics, nil)
 	go func() {
 		gRPCServer.Start()
 	}()
@@ -262,10 +264,10 @@ func newGossipInstanceWithGRPC(id int, port int, gRPCServer *corecomm.GRPCServer
 	return newGossipInstanceWithGrpcMcsMetrics(id, port, gRPCServer, certs, secureDialOpts, maxMsgCount, mcs, metrics, bootPorts...)
 }
 
-func newGossipInstanceWithGRPCWithLock(lock *sync.RWMutex, id int, port int, gRPCServer *corecomm.GRPCServer, certs *common.TLSCertificates,
+func newGossipInstanceWithExpiration(expirations map[string]time.Time, lock *sync.RWMutex, id int, port int, gRPCServer *corecomm.GRPCServer, certs *common.TLSCertificates,
 	secureDialOpts api.PeerSecureDialOpts, maxMsgCount int, bootPorts ...int) *gossipGRPC {
 	metrics := metrics.NewGossipMetrics(&disabled.Provider{})
-	mcs := &naiveCryptoService{expirationTimesLock: lock}
+	mcs := &naiveCryptoService{expirationTimesLock: lock, expirationTimes: expirations}
 	return newGossipInstanceWithGrpcMcsMetrics(id, port, gRPCServer, certs, secureDialOpts, maxMsgCount, mcs, metrics, bootPorts...)
 }
 
@@ -302,10 +304,12 @@ func newGossipInstanceWithGRPCWithOnlyPull(id int, port int, gRPCServer *corecom
 		AliveExpirationTimeout:       discoveryConfig.AliveExpirationTimeout,
 		AliveExpirationCheckInterval: discoveryConfig.AliveExpirationCheckInterval,
 		ReconnectInterval:            discoveryConfig.ReconnectInterval,
+		MaxConnectionAttempts:        discoveryConfig.MaxConnectionAttempts,
+		MsgExpirationFactor:          discoveryConfig.MsgExpirationFactor,
 	}
 	selfID := api.PeerIdentityType(conf.InternalEndpoint)
 	g := New(conf, gRPCServer.Server(), &orgCryptoService{}, mcs, selfID,
-		secureDialOpts, metrics)
+		secureDialOpts, metrics, nil)
 	go func() {
 		gRPCServer.Start()
 	}()
@@ -341,7 +345,6 @@ func (g *gossipGRPC) Stop() {
 }
 
 func TestLeaveChannel(t *testing.T) {
-	t.Parallel()
 	// Scenario: Have 3 peers in a channel and make one of them leave it.
 	// Ensure the peers don't recognize the other peer when it left the channel
 
@@ -383,11 +386,9 @@ func TestLeaveChannel(t *testing.T) {
 	waitUntilOrFail(t, countMembership(p0, 1), "waiting for p0 to update membership view")
 	waitUntilOrFail(t, countMembership(p1, 1), "waiting for p1 to update membership view")
 	waitUntilOrFail(t, countMembership(p2, 0), "waiting for p2 to update membership view")
-
 }
 
 func TestPull(t *testing.T) {
-	t.Parallel()
 	t1 := time.Now()
 	// Scenario: Turn off forwarding and use only pull-based gossip.
 	// First phase: Ensure full membership view for all nodes
@@ -478,7 +479,6 @@ func TestPull(t *testing.T) {
 }
 
 func TestConnectToAnchorPeers(t *testing.T) {
-	t.Parallel()
 	// Scenario: spawn 10 peers, and have them join a channel
 	// of 3 anchor peers that don't exist yet.
 	// Wait 5 seconds, and then spawn a random anchor peer out of the 3.
@@ -551,11 +551,9 @@ func TestConnectToAnchorPeers(t *testing.T) {
 
 	fmt.Println("<<<TestConnectToAnchorPeers>>>")
 	atomic.StoreInt32(&stopped, int32(1))
-
 }
 
 func TestMembership(t *testing.T) {
-	t.Parallel()
 	t1 := time.Now()
 	// Scenario: spawn 20 nodes and a single bootstrap node and then:
 	// 1) Check full membership views for all nodes but the bootstrap node.
@@ -585,7 +583,7 @@ func TestMembership(t *testing.T) {
 	}
 
 	portn, grpcn, certsn, secDialOptsn, _ := util.CreateGRPCLayer()
-	var lastPeer = fmt.Sprintf("127.0.0.1:%d", portn)
+	lastPeer := fmt.Sprintf("127.0.0.1:%d", portn)
 	pI := newGossipInstanceWithGRPC(0, portn, grpcn, certsn, secDialOptsn, 100, port0)
 	peers[n-1] = pI
 	pI.JoinChan(&joinChanMsg{}, common.ChannelID("A"))
@@ -639,12 +637,9 @@ func TestMembership(t *testing.T) {
 	t.Log("Took", time.Since(t1))
 	atomic.StoreInt32(&stopped, int32(1))
 	fmt.Println("<<<TestMembership>>>")
-
 }
 
 func TestNoMessagesSelfLoop(t *testing.T) {
-	t.Parallel()
-
 	port0, grpc0, certs0, secDialOpts0, _ := util.CreateGRPCLayer()
 	boot := newGossipInstanceWithGRPC(0, port0, grpc0, certs0, secDialOpts0, 100)
 	boot.JoinChan(&joinChanMsg{}, common.ChannelID("A"))
@@ -672,7 +667,7 @@ func TestNoMessagesSelfLoop(t *testing.T) {
 			case msg := <-ch:
 				{
 					if protoext.IsDataMsg(msg.GetGossipMessage().GossipMessage) {
-						t.Fatal("Should not receive data message back, got", msg)
+						t.Errorf("Should not receive data message back, got %s", msg)
 					}
 				}
 				// Waiting for 2 seconds to make sure we won't
@@ -704,7 +699,6 @@ func TestNoMessagesSelfLoop(t *testing.T) {
 }
 
 func TestDissemination(t *testing.T) {
-	t.Parallel()
 	t1 := time.Now()
 	// Scenario: 20 nodes and a bootstrap node.
 	// The bootstrap node sends 10 messages and we count
@@ -751,13 +745,13 @@ func TestDissemination(t *testing.T) {
 			pI.UpdateLedgerHeight(2, common.ChannelID("A"))
 		}
 	}
-	var lastPeer = fmt.Sprintf("127.0.0.1:%d", portn)
+	lastPeer := fmt.Sprintf("127.0.0.1:%d", portn)
 	metaDataUpdated := func() bool {
-		if 2 != heightOfPeer(boot.PeersOfChannel(common.ChannelID("A")), lastPeer) {
+		if heightOfPeer(boot.PeersOfChannel(common.ChannelID("A")), lastPeer) != 2 {
 			return false
 		}
 		for i := 0; i < n-1; i++ {
-			if 2 != heightOfPeer(peers[i].PeersOfChannel(common.ChannelID("A")), lastPeer) {
+			if heightOfPeer(peers[i].PeersOfChannel(common.ChannelID("A")), lastPeer) != 2 {
 				return false
 			}
 			for _, p := range peers[i].PeersOfChannel(common.ChannelID("A")) {
@@ -789,7 +783,7 @@ func TestDissemination(t *testing.T) {
 	t.Log("Metadata dissemination took", time.Since(t2))
 
 	for i := 0; i < n; i++ {
-		assert.Equal(t, msgsCount2Send, receivedMessages[i])
+		require.Equal(t, msgsCount2Send, receivedMessages[i])
 	}
 
 	// Sending leadership messages
@@ -818,7 +812,7 @@ func TestDissemination(t *testing.T) {
 	t.Log("Leadership message dissemination took", time.Since(t3))
 
 	for i := 0; i < n; i++ {
-		assert.Equal(t, 1, receivedLeadershipMessages[i])
+		require.Equal(t, 1, receivedLeadershipMessages[i])
 	}
 
 	t.Log("Stopping peers")
@@ -836,7 +830,6 @@ func TestDissemination(t *testing.T) {
 }
 
 func TestMembershipConvergence(t *testing.T) {
-	t.Parallel()
 	// Scenario: Spawn 12 nodes and 3 bootstrap peers
 	// but assign each node to its bootstrap peer group modulo 3.
 	// Then:
@@ -879,10 +872,10 @@ func TestMembershipConvergence(t *testing.T) {
 
 	fullKnowledge := func() bool {
 		for i := 0; i < 15; i++ {
-			if 15 != len(peers[i].Peers()) {
+			if len(peers[i].Peers()) != 15 {
 				return false
 			}
-			if "Connector" != string(metadataOfPeer(peers[i].Peers(), endpoint15)) {
+			if string(metadataOfPeer(peers[i].Peers(), endpoint15)) != "Connector" {
 				return false
 			}
 		}
@@ -898,7 +891,7 @@ func TestMembershipConvergence(t *testing.T) {
 
 	ensureForget := func() bool {
 		for i := 0; i < 15; i++ {
-			if 14 != len(peers[i].Peers()) {
+			if len(peers[i].Peers()) != 14 {
 				return false
 			}
 		}
@@ -915,10 +908,10 @@ func TestMembershipConvergence(t *testing.T) {
 
 	ensureResync := func() bool {
 		for i := 0; i < 15; i++ {
-			if 15 != len(peers[i].Peers()) {
+			if len(peers[i].Peers()) != 15 {
 				return false
 			}
-			if "Connector2" != string(metadataOfPeer(peers[i].Peers(), endpoint15)) {
+			if string(metadataOfPeer(peers[i].Peers(), endpoint15)) != "Connector2" {
 				return false
 			}
 		}
@@ -941,7 +934,6 @@ func TestMembershipConvergence(t *testing.T) {
 }
 
 func TestMembershipRequestSpoofing(t *testing.T) {
-	t.Parallel()
 	// Scenario: g1, g2, g3 are peers, and g2 is malicious, and wants
 	// to impersonate g3 when sending a membership request to g1.
 	// Expected output: g1 should *NOT* respond to g2,
@@ -1002,21 +994,20 @@ func TestMembershipRequestSpoofing(t *testing.T) {
 	case <-time.After(time.Second):
 		break
 	case <-g1ToG2:
-		assert.Fail(t, "Received response from g1 but shouldn't have")
+		require.Fail(t, "Received response from g1 but shouldn't have")
 	}
 
 	// Now send the same message from g3 to g1
 	g3.Send(spoofedMemReq.GossipMessage, &comm.RemotePeer{Endpoint: endpoint0, PKIID: common.PKIidType(endpoint0)})
 	select {
 	case <-time.After(time.Second):
-		assert.Fail(t, "Didn't receive a message back from g1 on time")
+		require.Fail(t, "Didn't receive a message back from g1 on time")
 	case <-g1ToG3:
 		break
 	}
 }
 
 func TestDataLeakage(t *testing.T) {
-	t.Parallel()
 	// Scenario: spawn some nodes and let them all
 	// establish full membership.
 	// Then, have half be in channel A and half be in channel B.
@@ -1112,11 +1103,11 @@ func TestDataLeakage(t *testing.T) {
 	for i, channel := range channels {
 		for j := 0; j < 3; j++ {
 			instanceIndex := (n/2)*i + j
-			assert.Len(t, peers[instanceIndex].PeersOfChannel(channel), 2)
+			require.Len(t, peers[instanceIndex].PeersOfChannel(channel), 2)
 			if i == 0 {
-				assert.Equal(t, uint64(1), peers[instanceIndex].PeersOfChannel(channel)[0].Properties.LedgerHeight)
+				require.Equal(t, uint64(1), peers[instanceIndex].PeersOfChannel(channel)[0].Properties.LedgerHeight)
 			} else {
-				assert.Equal(t, uint64(2), peers[instanceIndex].PeersOfChannel(channel)[0].Properties.LedgerHeight)
+				require.Equal(t, uint64(2), peers[instanceIndex].PeersOfChannel(channel)[0].Properties.LedgerHeight)
 			}
 		}
 	}
@@ -1130,7 +1121,7 @@ func TestDataLeakage(t *testing.T) {
 				go func(instanceIndex int, channel common.ChannelID) {
 					incMsgChan, _ := peers[instanceIndex].Accept(acceptData, false)
 					msg := <-incMsgChan
-					assert.Equal(t, []byte(channel), []byte(msg.Channel))
+					require.Equal(t, []byte(channel), []byte(msg.Channel))
 					wg.Done()
 				}(instanceIndex, channel)
 			}
@@ -1154,12 +1145,12 @@ func TestDataLeakage(t *testing.T) {
 }
 
 func TestDisseminateAll2All(t *testing.T) {
+	t.Skip()
+
 	// Scenario: spawn some nodes, have each node
 	// disseminate a block to all nodes.
 	// Ensure all blocks are received
 
-	t.Skip()
-	t.Parallel()
 	stopped := int32(0)
 	go waitForTestCompletion(&stopped, t)
 
@@ -1236,8 +1227,6 @@ func TestDisseminateAll2All(t *testing.T) {
 }
 
 func TestSendByCriteria(t *testing.T) {
-	t.Parallel()
-
 	port0, grpc0, certs0, secDialOpts0, _ := util.CreateGRPCLayer()
 	g1 := newGossipInstanceWithGRPC(0, port0, grpc0, certs0, secDialOpts0, 100)
 	port1, grpc1, certs1, secDialOpts1, _ := util.CreateGRPCLayer()
@@ -1266,35 +1255,35 @@ func TestSendByCriteria(t *testing.T) {
 		Timeout: time.Second * 1,
 		MinAck:  1,
 	}
-	assert.NoError(t, g1.SendByCriteria(msg, criteria))
+	require.NoError(t, g1.SendByCriteria(msg, criteria))
 
 	// We send without specifying a timeout
 	criteria = SendCriteria{
 		MaxPeers: 100,
 	}
 	err := g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Equal(t, "Timeout should be specified", err.Error())
+	require.Error(t, err)
+	require.Equal(t, "Timeout should be specified", err.Error())
 
 	// We send without specifying a minimum acknowledge threshold
 	criteria.Timeout = time.Second * 3
 	err = g1.SendByCriteria(msg, criteria)
 	// Should work, because minAck is 0 (not specified)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// We send without specifying a channel
 	criteria.Channel = common.ChannelID("B")
 	err = g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "but no such channel exists")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "but no such channel exists")
 
 	// We send to peers from the channel, but we expect 10 acknowledgements.
 	// It should immediately return because we don't know about 10 peers so no point in even trying
 	criteria.Channel = common.ChannelID("A")
 	criteria.MinAck = 10
 	err = g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Requested to send to at least 10 peers, but know only of")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "requested to send to at least 10 peers, but know only of")
 
 	// We send to a minimum of 3 peers with acknowledgement, while no peer acknowledges the messages.
 	// Wait until g1 sees the rest of the peers in the channel
@@ -1303,9 +1292,9 @@ func TestSendByCriteria(t *testing.T) {
 	}, "waiting until g1 sees the rest of the peers in the channel")
 	criteria.MinAck = 3
 	err = g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out")
-	assert.Contains(t, err.Error(), "3")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timed out")
+	require.Contains(t, err.Error(), "3")
 
 	// We retry the test above, but this time the peers acknowledge
 	// Peers now ack
@@ -1324,7 +1313,7 @@ func TestSendByCriteria(t *testing.T) {
 	go ack(ackChan3)
 	go ack(ackChan4)
 	err = g1.SendByCriteria(msg, criteria)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// We send to 3 peers, but 2 out of 3 peers acknowledge with an error
 	nack := func(c <-chan protoext.ReceivedMessage) {
@@ -1335,8 +1324,8 @@ func TestSendByCriteria(t *testing.T) {
 	go nack(ackChan3)
 	go nack(ackChan4)
 	err = g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "uh oh")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "uh oh")
 
 	// We try to send to either g2 or g3, but neither would ack us, so we would fail.
 	// However - what we actually check in this test is that we send to peers according to the
@@ -1346,7 +1335,7 @@ func TestSendByCriteria(t *testing.T) {
 		if msg == nil {
 			return
 		}
-		t.Fatalf("%d got a message, but shouldn't have!", peerId)
+		t.Errorf("%d got a message, but shouldn't have!", peerId)
 	}
 	g2Endpoint := fmt.Sprintf("127.0.0.1:%d", port1)
 	g3Endpoint := fmt.Sprintf("127.0.0.1:%d", port2)
@@ -1356,9 +1345,9 @@ func TestSendByCriteria(t *testing.T) {
 	criteria.MinAck = 1
 	go failOnAckRequest(ackChan4, 3)
 	err = g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out")
-	assert.Contains(t, err.Error(), "2")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timed out")
+	require.Contains(t, err.Error(), "2")
 	// Finally, ack the lost messages, to cleanup for the next test
 	ack(ackChan2)
 	ack(ackChan3)
@@ -1386,32 +1375,32 @@ func TestSendByCriteria(t *testing.T) {
 		atomic.AddUint32(&messagesSent, 1)
 	})
 	err = g1.SendByCriteria(msg, criteria)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timed out")
 	// Check how many messages were sent.
 	// Only 1 should have been sent
-	assert.Equal(t, uint32(1), atomic.LoadUint32(&messagesSent))
+	require.Equal(t, uint32(1), atomic.LoadUint32(&messagesSent))
 }
 
 func TestIdentityExpiration(t *testing.T) {
-	t.Parallel()
 	// Scenario: spawn 5 peers and make the MessageCryptoService revoke one of the first 4.
 	// The last peer's certificate expires after a few seconds.
 	// Eventually, the rest of the peers should not be able to communicate with
 	// the revoked peer at all because its identity would seem to them as expired
 
 	var expirationTimesLock sync.RWMutex
+	expirationTimes := map[string]time.Time{}
 
 	port1, grpc1, certs1, secDialOpts1, _ := util.CreateGRPCLayer()
-	g1 := newGossipInstanceWithGRPCWithLock(&expirationTimesLock, 1, port1, grpc1, certs1, secDialOpts1, 100)
+	g1 := newGossipInstanceWithExpiration(expirationTimes, &expirationTimesLock, 1, port1, grpc1, certs1, secDialOpts1, 100)
 	port2, grpc2, certs2, secDialOpts2, _ := util.CreateGRPCLayer()
-	g2 := newGossipInstanceWithGRPCWithLock(&expirationTimesLock, 2, port2, grpc2, certs2, secDialOpts2, 100, port1)
+	g2 := newGossipInstanceWithExpiration(expirationTimes, &expirationTimesLock, 2, port2, grpc2, certs2, secDialOpts2, 100, port1)
 	port3, grpc3, certs3, secDialOpts3, _ := util.CreateGRPCLayer()
-	g3 := newGossipInstanceWithGRPCWithLock(&expirationTimesLock, 3, port3, grpc3, certs3, secDialOpts3, 100, port1)
+	g3 := newGossipInstanceWithExpiration(expirationTimes, &expirationTimesLock, 3, port3, grpc3, certs3, secDialOpts3, 100, port1)
 	port4, grpc4, certs4, secDialOpts4, _ := util.CreateGRPCLayer()
-	g4 := newGossipInstanceWithGRPCWithLock(&expirationTimesLock, 4, port4, grpc4, certs4, secDialOpts4, 100, port1)
+	g4 := newGossipInstanceWithExpiration(expirationTimes, &expirationTimesLock, 4, port4, grpc4, certs4, secDialOpts4, 100, port1)
 	port5, grpc5, certs5, secDialOpts5, _ := util.CreateGRPCLayer()
-	g5 := newGossipInstanceWithGRPCWithLock(&expirationTimesLock, 5, port5, grpc5, certs5, secDialOpts5, 100, port1)
+	g5 := newGossipInstanceWithExpiration(expirationTimes, &expirationTimesLock, 5, port5, grpc5, certs5, secDialOpts5, 100, port1)
 
 	// Set expiration of the last peer to 5 seconds from now
 	endpointLast := fmt.Sprintf("127.0.0.1:%d", port5)
@@ -1497,7 +1486,6 @@ func createDataMsg(seqnum uint64, data []byte, channel common.ChannelID) *proto.
 }
 
 func createLeadershipMsg(isDeclaration bool, channel common.ChannelID, incTime uint64, seqNum uint64, pkiid []byte) *proto.GossipMessage {
-
 	leadershipMsg := &proto.LeadershipMessage{
 		IsDeclaration: isDeclaration,
 		PkiId:         pkiid,
@@ -1540,7 +1528,7 @@ func waitForTestCompletion(stopFlag *int32, t *testing.T) {
 		return
 	}
 	util.PrintStackTrace()
-	assert.Fail(t, "Didn't stop within a timely manner")
+	require.Fail(t, "Didn't stop within a timely manner")
 }
 
 func stopPeers(peers []*gossipGRPC) {
@@ -1565,7 +1553,7 @@ func waitUntilOrFail(t *testing.T, pred func() bool, context string) {
 		time.Sleep(timeout / 1000)
 	}
 	util.PrintStackTrace()
-	assert.Failf(t, "Timeout expired, while %s", context)
+	require.Failf(t, "Timeout expired, while %s", context)
 }
 
 func waitUntilOrFailBlocking(t *testing.T, f func(), context string) {
@@ -1581,7 +1569,7 @@ func waitUntilOrFailBlocking(t *testing.T, f func(), context string) {
 		return
 	}
 	util.PrintStackTrace()
-	assert.Failf(t, "Timeout expired, while %s", context)
+	require.Failf(t, "Timeout expired, while %s", context)
 }
 
 func checkPeersMembership(t *testing.T, peers []*gossipGRPC, n int) func() bool {
@@ -1591,8 +1579,8 @@ func checkPeersMembership(t *testing.T, peers []*gossipGRPC, n int) func() bool 
 				return false
 			}
 			for _, p := range peer.Peers() {
-				assert.NotNil(t, p.InternalEndpoint)
-				assert.NotEmpty(t, p.Endpoint)
+				require.NotNil(t, p.InternalEndpoint)
+				require.NotEmpty(t, p.Endpoint)
 			}
 		}
 		return true
@@ -1600,8 +1588,6 @@ func checkPeersMembership(t *testing.T, peers []*gossipGRPC, n int) func() bool 
 }
 
 func TestMembershipMetrics(t *testing.T) {
-	t.Parallel()
-
 	wg0 := sync.WaitGroup{}
 	wg0.Add(1)
 	once0 := sync.Once{}
@@ -1633,11 +1619,11 @@ func TestMembershipMetrics(t *testing.T) {
 
 	// assert channel membership metrics reported with 0 as value
 	wg0.Wait()
-	assert.Equal(t,
+	require.Equal(t,
 		[]string{"channel", "A"},
 		testMetricProvider.FakeTotalGauge.WithArgsForCall(0),
 	)
-	assert.EqualValues(t, 0,
+	require.EqualValues(t, 0,
 		testMetricProvider.FakeTotalGauge.SetArgsForCall(0),
 	)
 
@@ -1662,5 +1648,4 @@ func TestMembershipMetrics(t *testing.T) {
 	pI1.Stop()
 	waitUntilOrFail(t, waitForMembership(0), "waiting for metrics membership of 0")
 	pI0.Stop()
-
 }

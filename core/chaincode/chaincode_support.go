@@ -17,10 +17,12 @@ import (
 	"github.com/hyperledger/fabric/core/chaincode/extcc"
 	"github.com/hyperledger/fabric/core/chaincode/lifecycle"
 	"github.com/hyperledger/fabric/core/common/ccprovider"
+	"github.com/hyperledger/fabric/core/common/privdata"
 	"github.com/hyperledger/fabric/core/container/ccintf"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/peer"
 	"github.com/hyperledger/fabric/core/scc"
+	"github.com/hyperledger/fabric/msp"
 	"github.com/pkg/errors"
 )
 
@@ -105,6 +107,9 @@ func (cs *ChaincodeSupport) LaunchInProc(ccid string) <-chan struct{} {
 
 // HandleChaincodeStream implements ccintf.HandleChaincodeStream for all vms to call with appropriate stream
 func (cs *ChaincodeSupport) HandleChaincodeStream(stream ccintf.ChaincodeStream) error {
+	var deserializerFactory privdata.IdentityDeserializerFactoryFunc = func(channelID string) msp.IdentityDeserializer {
+		return cs.Peer.Channel(channelID).MSPManager()
+	}
 	handler := &Handler{
 		Invoker:                cs,
 		Keepalive:              cs.Keepalive,
@@ -116,6 +121,7 @@ func (cs *ChaincodeSupport) HandleChaincodeStream(stream ccintf.ChaincodeStream)
 		QueryResponseBuilder:   &QueryResponseGenerator{MaxResultLimit: 100},
 		UUIDGenerator:          UUIDGeneratorFunc(util.GenerateUUID),
 		LedgerGetter:           cs.Peer,
+		IDDeserializerFactory:  deserializerFactory,
 		DeployedCCInfoProvider: cs.DeployedCCInfoProvider,
 		AppConfig:              cs.AppConfig,
 		Metrics:                cs.HandlerMetrics,
@@ -205,7 +211,7 @@ func (cs *ChaincodeSupport) Invoke(txParams *ccprovider.TransactionParams, chain
 // CheckInvocation inspects the parameters of an invocation and determines if, how, and to where a that invocation should be routed.
 // First, we ensure that the target namespace is defined on the channel and invokable on this peer, according to the lifecycle implementation.
 // Then, if the chaincode definition requires it, this function enforces 'init exactly once' semantics.
-// Finally, it returns the chaincode ID to route to and the message type of the request (normal transation, or init).
+// Finally, it returns the chaincode ID to route to and the message type of the request (normal transaction, or init).
 func (cs *ChaincodeSupport) CheckInvocation(txParams *ccprovider.TransactionParams, chaincodeName string, input *pb.ChaincodeInput) (ccid string, cctype pb.ChaincodeMessage_Type, err error) {
 	chaincodeLogger.Debugf("[%s] getting chaincode data for %s on channel %s", shorttxid(txParams.TxID), chaincodeName, txParams.ChannelID)
 	cii, err := cs.Lifecycle.ChaincodeEndorsementInfo(txParams.ChannelID, chaincodeName, txParams.TXSimulator)

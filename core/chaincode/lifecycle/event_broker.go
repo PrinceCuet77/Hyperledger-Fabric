@@ -1,5 +1,6 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
+
 SPDX-License-Identifier: Apache-2.0
 */
 
@@ -34,7 +35,45 @@ func NewEventBroker(chaincodeStore ChaincodeStore, pkgParser PackageParser, ebMe
 	}
 }
 
-func (b *EventBroker) RegisterListener(channelID string, listener ledger.ChaincodeLifecycleEventListener) {
+func (b *EventBroker) RegisterListener(
+	channelID string,
+	listener ledger.ChaincodeLifecycleEventListener,
+	existingCachedChaincodes map[string]*CachedChaincodeDefinition) {
+	// when invoking chaincode event listener with existing invocable chaincodes, we logs
+	// errors instead of returning the error from this function to keep the consustent behavior
+	// similar to the code path when we invoke the listener later on as a response to the chaincode
+	// lifecycle events. See other functions below for details on this behavior.
+	for chaincodeName, cachedChaincode := range existingCachedChaincodes {
+		if !isChaincodeInvocable(cachedChaincode) {
+			continue
+		}
+
+		dbArtifacts, err := b.loadDBArtifacts(cachedChaincode.InstallInfo.PackageID)
+		if err != nil {
+			logger.Errorw(
+				"error while loading db artifacts for chaincode package. Continuing...",
+				"packageID", cachedChaincode.InstallInfo.PackageID,
+				"error", err,
+			)
+			continue
+		}
+		legacyDefinition := &ledger.ChaincodeDefinition{
+			Name:              chaincodeName,
+			Version:           cachedChaincode.Definition.EndorsementInfo.Version,
+			Hash:              []byte(cachedChaincode.InstallInfo.PackageID),
+			CollectionConfigs: cachedChaincode.Definition.Collections,
+		}
+
+		if err := listener.HandleChaincodeDeploy(legacyDefinition, dbArtifacts); err != nil {
+			logger.Errorw(
+				"error while invoking chaincode lifecycle events listener. Continuing...",
+				"packageID", cachedChaincode.InstallInfo.PackageID,
+				"error", err,
+			)
+		}
+		listener.ChaincodeDeployDone(true)
+	}
+
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	b.listeners[channelID] = append(b.listeners[channelID], listener)
@@ -52,7 +91,7 @@ func (b *EventBroker) ProcessInstallEvent(localChaincode *LocalChaincode) {
 	for channelID, channelCache := range localChaincode.References {
 		listenersInvokedOnChannel := false
 		for chaincodeName, cachedChaincode := range channelCache {
-			if !isChaincodeInvokable(cachedChaincode) {
+			if !isChaincodeInvocable(cachedChaincode) {
 				continue
 			}
 			ccdef := &ledger.ChaincodeDefinition{
@@ -70,23 +109,22 @@ func (b *EventBroker) ProcessInstallEvent(localChaincode *LocalChaincode) {
 			// the install will proceed and finally will, give a call back whether the install
 			// is succeeded.
 			// The purpose of splitting this in two phases was to essentially not miss on an install
-			// event in the case of a system crash immediatly after install and before the listeners
+			// event in the case of a system crash immediately after install and before the listeners
 			// gets a chance.
 			// However, in the current install model, the lifecycle cache receives the event only after
 			// the install is complete. So, for now, call the done on the listeners with a hard-wired 'true'
 			b.invokeDoneOnListeners(channelID, true)
 		}
 	}
-	return
 }
 
 // ProcessApproveOrDefineEvent gets invoked by an event that makes approve and define to be true
 // This should be OK even if this function gets invoked on defined and approved events separately because
-// the first check in this fucntion evaluates the final condition. However, the current cache implementation
+// the first check in this function evaluates the final condition. However, the current cache implementation
 // invokes this function when approve and define both become true.
 func (b *EventBroker) ProcessApproveOrDefineEvent(channelID string, chaincodeName string, cachedChaincode *CachedChaincodeDefinition) {
 	logger.Debugw("processApproveOrDefineEvent()", "channelID", channelID, "chaincodeName", chaincodeName, "cachedChaincode", cachedChaincode)
-	if !isChaincodeInvokable(cachedChaincode) {
+	if !isChaincodeInvocable(cachedChaincode) {
 		return
 	}
 	dbArtifacts, err := b.loadDBArtifacts(cachedChaincode.InstallInfo.PackageID)
@@ -103,10 +141,9 @@ func (b *EventBroker) ProcessApproveOrDefineEvent(channelID string, chaincodeNam
 	}
 	b.invokeListeners(channelID, ccdef, dbArtifacts)
 	b.defineCallbackStatus.Store(channelID, struct{}{})
-	return
 }
 
-// ApproveOrDefineCommitted gets invoked after the commit of state updates that triggered the invocaiton of
+// ApproveOrDefineCommitted gets invoked after the commit of state updates that triggered the invocation of
 // "ProcessApproveOrDefineEvent" function
 func (b *EventBroker) ApproveOrDefineCommitted(channelID string) {
 	_, ok := b.defineCallbackStatus.Load(channelID)
@@ -177,7 +214,7 @@ func (b *EventBroker) loadDBArtifacts(packageID string) ([]byte, error) {
 	return pkg.DBArtifacts, nil
 }
 
-// isChaincodeInvokable returns true iff a chaincode is approved and installed and defined
-func isChaincodeInvokable(ccInfo *CachedChaincodeDefinition) bool {
+// isChaincodeInvocable returns true iff a chaincode is approved and installed and defined
+func isChaincodeInvocable(ccInfo *CachedChaincodeDefinition) bool {
 	return ccInfo.Approved && ccInfo.InstallInfo != nil && ccInfo.Definition != nil
 }

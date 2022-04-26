@@ -13,14 +13,13 @@ import (
 	"time"
 
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/core/deliverservice"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/election"
 	"github.com/hyperledger/fabric/gossip/util"
+	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider"
 	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,17 +97,14 @@ func TestLeaderYield(t *testing.T) {
 		ElectionLeaderElectionDuration: time.Millisecond * 500,
 	}
 	n := 2
-	gossips := startPeers(t, serviceConfig, n, 0, 1)
+	gossips := startPeers(serviceConfig, n, 0, 1)
 	defer stopPeers(gossips)
 	channelName := "channelA"
 	peerIndexes := []int{0, 1}
 	// Add peers to the channel
-	addPeersToChannel(t, n, channelName, gossips, peerIndexes)
+	addPeersToChannel(channelName, gossips, peerIndexes)
 	// Prime the membership view of the peers
-	waitForFullMembershipOrFailNow(t, channelName, gossips, n, time.Second*30, time.Millisecond*100)
-
-	grpcClient, err := comm.NewGRPCClient(comm.ClientConfig{})
-	require.NoError(t, err)
+	waitForFullMembershipOrFailNow(t, channelName, gossips, n, TIMEOUT, time.Millisecond*100)
 
 	store := newTransientStore(t)
 	defer store.tearDown()
@@ -124,7 +120,6 @@ func TestLeaderYield(t *testing.T) {
 				ReconnectTotalTimeThreshold: time.Second,
 				ConnectionTimeout:           time.Millisecond * 100,
 			},
-			deliverGRPCClient: grpcClient,
 		}}
 		gs.InitializeChannel(channelName, orderers.NewConnectionSource(flogging.MustGetLogger("peer.orderers"), nil), store.Store, Support{
 			Committer: &mockLedgerInfo{1},
@@ -169,12 +164,12 @@ func TestLeaderYield(t *testing.T) {
 	ds0.waitForDeliveryServiceActivation()
 	t.Log("p0 started its delivery service")
 	// Ensure it's a leader
-	assert.Equal(t, 0, getLeader())
+	require.Equal(t, 0, getLeader())
 	// Wait for p0 to lose its leadership
 	ds0.waitForDeliveryServiceTermination()
 	t.Log("p0 stopped its delivery service")
 	// Ensure p0 is not a leader
-	assert.NotEqual(t, 0, getLeader())
+	require.NotEqual(t, 0, getLeader())
 	// Wait for p1 to take over. It should take over before time reaches timeLimit
 	timeLimit := time.Now().Add(takeOverMaxTimeout)
 	for getLeader() != 1 && time.Now().Before(timeLimit) {

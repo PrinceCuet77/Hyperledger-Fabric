@@ -43,14 +43,6 @@ func (builder *expiryScheduleBuilder) add(ns, coll, key string, keyHash []byte, 
 	return nil
 }
 
-func isDelete(versionedValue *statedb.VersionedValue) bool {
-	return versionedValue.Value == nil
-}
-
-func neverExpires(expiryBlk uint64) bool {
-	return expiryBlk == math.MaxUint64
-}
-
 func (builder *expiryScheduleBuilder) getExpiryInfo() []*expiryInfo {
 	var listExpinfo []*expiryInfo
 	for expinfoKey, pvtdataKeys := range builder.scheduleEntries {
@@ -64,7 +56,6 @@ func buildExpirySchedule(
 	btlPolicy pvtdatapolicy.BTLPolicy,
 	pvtUpdates *privacyenabledstate.PvtUpdateBatch,
 	hashedUpdates *privacyenabledstate.HashedUpdateBatch) ([]*expiryInfo, error) {
-
 	hashedUpdateKeys := hashedUpdates.ToCompositeKeyMap()
 	expiryScheduleBuilder := newExpiryScheduleBuilder(btlPolicy)
 
@@ -97,4 +88,12 @@ func buildExpirySchedule(
 		}
 	}
 	return expiryScheduleBuilder.getExpiryInfo(), nil
+}
+
+func isDelete(versionedValue *statedb.VersionedValue) bool {
+	return versionedValue.Value == nil
+}
+
+func neverExpires(expiryBlk uint64) bool {
+	return expiryBlk == math.MaxUint64
 }

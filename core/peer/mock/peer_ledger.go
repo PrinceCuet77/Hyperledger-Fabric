@@ -11,6 +11,17 @@ import (
 )
 
 type PeerLedger struct {
+	CancelSnapshotRequestStub        func(uint64) error
+	cancelSnapshotRequestMutex       sync.RWMutex
+	cancelSnapshotRequestArgsForCall []struct {
+		arg1 uint64
+	}
+	cancelSnapshotRequestReturns struct {
+		result1 error
+	}
+	cancelSnapshotRequestReturnsOnCall map[int]struct {
+		result1 error
+	}
 	CloseStub        func()
 	closeMutex       sync.RWMutex
 	closeArgsForCall []struct {
@@ -27,10 +38,24 @@ type PeerLedger struct {
 	commitLegacyReturnsOnCall map[int]struct {
 		result1 error
 	}
-	CommitPvtDataOfOldBlocksStub        func([]*ledger.ReconciledPvtdata) ([]*ledger.PvtdataHashMismatch, error)
+	CommitNotificationsChannelStub        func(<-chan struct{}) (<-chan *ledger.CommitNotification, error)
+	commitNotificationsChannelMutex       sync.RWMutex
+	commitNotificationsChannelArgsForCall []struct {
+		arg1 <-chan struct{}
+	}
+	commitNotificationsChannelReturns struct {
+		result1 <-chan *ledger.CommitNotification
+		result2 error
+	}
+	commitNotificationsChannelReturnsOnCall map[int]struct {
+		result1 <-chan *ledger.CommitNotification
+		result2 error
+	}
+	CommitPvtDataOfOldBlocksStub        func([]*ledger.ReconciledPvtdata, ledger.MissingPvtDataInfo) ([]*ledger.PvtdataHashMismatch, error)
 	commitPvtDataOfOldBlocksMutex       sync.RWMutex
 	commitPvtDataOfOldBlocksArgsForCall []struct {
 		arg1 []*ledger.ReconciledPvtdata
+		arg2 ledger.MissingPvtDataInfo
 	}
 	commitPvtDataOfOldBlocksReturns struct {
 		result1 []*ledger.PvtdataHashMismatch
@@ -182,18 +207,20 @@ type PeerLedger struct {
 		result1 *peera.ProcessedTransaction
 		result2 error
 	}
-	GetTxValidationCodeByTxIDStub        func(string) (peera.TxValidationCode, error)
+	GetTxValidationCodeByTxIDStub        func(string) (peera.TxValidationCode, uint64, error)
 	getTxValidationCodeByTxIDMutex       sync.RWMutex
 	getTxValidationCodeByTxIDArgsForCall []struct {
 		arg1 string
 	}
 	getTxValidationCodeByTxIDReturns struct {
 		result1 peera.TxValidationCode
-		result2 error
+		result2 uint64
+		result3 error
 	}
 	getTxValidationCodeByTxIDReturnsOnCall map[int]struct {
 		result1 peera.TxValidationCode
-		result2 error
+		result2 uint64
+		result3 error
 	}
 	NewHistoryQueryExecutorStub        func() (ledger.HistoryQueryExecutor, error)
 	newHistoryQueryExecutorMutex       sync.RWMutex
@@ -232,8 +259,104 @@ type PeerLedger struct {
 		result1 ledger.TxSimulator
 		result2 error
 	}
+	PendingSnapshotRequestsStub        func() ([]uint64, error)
+	pendingSnapshotRequestsMutex       sync.RWMutex
+	pendingSnapshotRequestsArgsForCall []struct {
+	}
+	pendingSnapshotRequestsReturns struct {
+		result1 []uint64
+		result2 error
+	}
+	pendingSnapshotRequestsReturnsOnCall map[int]struct {
+		result1 []uint64
+		result2 error
+	}
+	SubmitSnapshotRequestStub        func(uint64) error
+	submitSnapshotRequestMutex       sync.RWMutex
+	submitSnapshotRequestArgsForCall []struct {
+		arg1 uint64
+	}
+	submitSnapshotRequestReturns struct {
+		result1 error
+	}
+	submitSnapshotRequestReturnsOnCall map[int]struct {
+		result1 error
+	}
+	TxIDExistsStub        func(string) (bool, error)
+	txIDExistsMutex       sync.RWMutex
+	txIDExistsArgsForCall []struct {
+		arg1 string
+	}
+	txIDExistsReturns struct {
+		result1 bool
+		result2 error
+	}
+	txIDExistsReturnsOnCall map[int]struct {
+		result1 bool
+		result2 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *PeerLedger) CancelSnapshotRequest(arg1 uint64) error {
+	fake.cancelSnapshotRequestMutex.Lock()
+	ret, specificReturn := fake.cancelSnapshotRequestReturnsOnCall[len(fake.cancelSnapshotRequestArgsForCall)]
+	fake.cancelSnapshotRequestArgsForCall = append(fake.cancelSnapshotRequestArgsForCall, struct {
+		arg1 uint64
+	}{arg1})
+	fake.recordInvocation("CancelSnapshotRequest", []interface{}{arg1})
+	fake.cancelSnapshotRequestMutex.Unlock()
+	if fake.CancelSnapshotRequestStub != nil {
+		return fake.CancelSnapshotRequestStub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	fakeReturns := fake.cancelSnapshotRequestReturns
+	return fakeReturns.result1
+}
+
+func (fake *PeerLedger) CancelSnapshotRequestCallCount() int {
+	fake.cancelSnapshotRequestMutex.RLock()
+	defer fake.cancelSnapshotRequestMutex.RUnlock()
+	return len(fake.cancelSnapshotRequestArgsForCall)
+}
+
+func (fake *PeerLedger) CancelSnapshotRequestCalls(stub func(uint64) error) {
+	fake.cancelSnapshotRequestMutex.Lock()
+	defer fake.cancelSnapshotRequestMutex.Unlock()
+	fake.CancelSnapshotRequestStub = stub
+}
+
+func (fake *PeerLedger) CancelSnapshotRequestArgsForCall(i int) uint64 {
+	fake.cancelSnapshotRequestMutex.RLock()
+	defer fake.cancelSnapshotRequestMutex.RUnlock()
+	argsForCall := fake.cancelSnapshotRequestArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *PeerLedger) CancelSnapshotRequestReturns(result1 error) {
+	fake.cancelSnapshotRequestMutex.Lock()
+	defer fake.cancelSnapshotRequestMutex.Unlock()
+	fake.CancelSnapshotRequestStub = nil
+	fake.cancelSnapshotRequestReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *PeerLedger) CancelSnapshotRequestReturnsOnCall(i int, result1 error) {
+	fake.cancelSnapshotRequestMutex.Lock()
+	defer fake.cancelSnapshotRequestMutex.Unlock()
+	fake.CancelSnapshotRequestStub = nil
+	if fake.cancelSnapshotRequestReturnsOnCall == nil {
+		fake.cancelSnapshotRequestReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.cancelSnapshotRequestReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *PeerLedger) Close() {
@@ -320,7 +443,70 @@ func (fake *PeerLedger) CommitLegacyReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *PeerLedger) CommitPvtDataOfOldBlocks(arg1 []*ledger.ReconciledPvtdata) ([]*ledger.PvtdataHashMismatch, error) {
+func (fake *PeerLedger) CommitNotificationsChannel(arg1 <-chan struct{}) (<-chan *ledger.CommitNotification, error) {
+	fake.commitNotificationsChannelMutex.Lock()
+	ret, specificReturn := fake.commitNotificationsChannelReturnsOnCall[len(fake.commitNotificationsChannelArgsForCall)]
+	fake.commitNotificationsChannelArgsForCall = append(fake.commitNotificationsChannelArgsForCall, struct {
+		arg1 <-chan struct{}
+	}{arg1})
+	fake.recordInvocation("CommitNotificationsChannel", []interface{}{arg1})
+	fake.commitNotificationsChannelMutex.Unlock()
+	if fake.CommitNotificationsChannelStub != nil {
+		return fake.CommitNotificationsChannelStub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	fakeReturns := fake.commitNotificationsChannelReturns
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *PeerLedger) CommitNotificationsChannelCallCount() int {
+	fake.commitNotificationsChannelMutex.RLock()
+	defer fake.commitNotificationsChannelMutex.RUnlock()
+	return len(fake.commitNotificationsChannelArgsForCall)
+}
+
+func (fake *PeerLedger) CommitNotificationsChannelCalls(stub func(<-chan struct{}) (<-chan *ledger.CommitNotification, error)) {
+	fake.commitNotificationsChannelMutex.Lock()
+	defer fake.commitNotificationsChannelMutex.Unlock()
+	fake.CommitNotificationsChannelStub = stub
+}
+
+func (fake *PeerLedger) CommitNotificationsChannelArgsForCall(i int) <-chan struct{} {
+	fake.commitNotificationsChannelMutex.RLock()
+	defer fake.commitNotificationsChannelMutex.RUnlock()
+	argsForCall := fake.commitNotificationsChannelArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *PeerLedger) CommitNotificationsChannelReturns(result1 <-chan *ledger.CommitNotification, result2 error) {
+	fake.commitNotificationsChannelMutex.Lock()
+	defer fake.commitNotificationsChannelMutex.Unlock()
+	fake.CommitNotificationsChannelStub = nil
+	fake.commitNotificationsChannelReturns = struct {
+		result1 <-chan *ledger.CommitNotification
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *PeerLedger) CommitNotificationsChannelReturnsOnCall(i int, result1 <-chan *ledger.CommitNotification, result2 error) {
+	fake.commitNotificationsChannelMutex.Lock()
+	defer fake.commitNotificationsChannelMutex.Unlock()
+	fake.CommitNotificationsChannelStub = nil
+	if fake.commitNotificationsChannelReturnsOnCall == nil {
+		fake.commitNotificationsChannelReturnsOnCall = make(map[int]struct {
+			result1 <-chan *ledger.CommitNotification
+			result2 error
+		})
+	}
+	fake.commitNotificationsChannelReturnsOnCall[i] = struct {
+		result1 <-chan *ledger.CommitNotification
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *PeerLedger) CommitPvtDataOfOldBlocks(arg1 []*ledger.ReconciledPvtdata, arg2 ledger.MissingPvtDataInfo) ([]*ledger.PvtdataHashMismatch, error) {
 	var arg1Copy []*ledger.ReconciledPvtdata
 	if arg1 != nil {
 		arg1Copy = make([]*ledger.ReconciledPvtdata, len(arg1))
@@ -330,11 +516,12 @@ func (fake *PeerLedger) CommitPvtDataOfOldBlocks(arg1 []*ledger.ReconciledPvtdat
 	ret, specificReturn := fake.commitPvtDataOfOldBlocksReturnsOnCall[len(fake.commitPvtDataOfOldBlocksArgsForCall)]
 	fake.commitPvtDataOfOldBlocksArgsForCall = append(fake.commitPvtDataOfOldBlocksArgsForCall, struct {
 		arg1 []*ledger.ReconciledPvtdata
-	}{arg1Copy})
-	fake.recordInvocation("CommitPvtDataOfOldBlocks", []interface{}{arg1Copy})
+		arg2 ledger.MissingPvtDataInfo
+	}{arg1Copy, arg2})
+	fake.recordInvocation("CommitPvtDataOfOldBlocks", []interface{}{arg1Copy, arg2})
 	fake.commitPvtDataOfOldBlocksMutex.Unlock()
 	if fake.CommitPvtDataOfOldBlocksStub != nil {
-		return fake.CommitPvtDataOfOldBlocksStub(arg1)
+		return fake.CommitPvtDataOfOldBlocksStub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -349,17 +536,17 @@ func (fake *PeerLedger) CommitPvtDataOfOldBlocksCallCount() int {
 	return len(fake.commitPvtDataOfOldBlocksArgsForCall)
 }
 
-func (fake *PeerLedger) CommitPvtDataOfOldBlocksCalls(stub func([]*ledger.ReconciledPvtdata) ([]*ledger.PvtdataHashMismatch, error)) {
+func (fake *PeerLedger) CommitPvtDataOfOldBlocksCalls(stub func([]*ledger.ReconciledPvtdata, ledger.MissingPvtDataInfo) ([]*ledger.PvtdataHashMismatch, error)) {
 	fake.commitPvtDataOfOldBlocksMutex.Lock()
 	defer fake.commitPvtDataOfOldBlocksMutex.Unlock()
 	fake.CommitPvtDataOfOldBlocksStub = stub
 }
 
-func (fake *PeerLedger) CommitPvtDataOfOldBlocksArgsForCall(i int) []*ledger.ReconciledPvtdata {
+func (fake *PeerLedger) CommitPvtDataOfOldBlocksArgsForCall(i int) ([]*ledger.ReconciledPvtdata, ledger.MissingPvtDataInfo) {
 	fake.commitPvtDataOfOldBlocksMutex.RLock()
 	defer fake.commitPvtDataOfOldBlocksMutex.RUnlock()
 	argsForCall := fake.commitPvtDataOfOldBlocksArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *PeerLedger) CommitPvtDataOfOldBlocksReturns(result1 []*ledger.PvtdataHashMismatch, result2 error) {
@@ -1064,7 +1251,7 @@ func (fake *PeerLedger) GetTransactionByIDReturnsOnCall(i int, result1 *peera.Pr
 	}{result1, result2}
 }
 
-func (fake *PeerLedger) GetTxValidationCodeByTxID(arg1 string) (peera.TxValidationCode, error) {
+func (fake *PeerLedger) GetTxValidationCodeByTxID(arg1 string) (peera.TxValidationCode, uint64, error) {
 	fake.getTxValidationCodeByTxIDMutex.Lock()
 	ret, specificReturn := fake.getTxValidationCodeByTxIDReturnsOnCall[len(fake.getTxValidationCodeByTxIDArgsForCall)]
 	fake.getTxValidationCodeByTxIDArgsForCall = append(fake.getTxValidationCodeByTxIDArgsForCall, struct {
@@ -1076,10 +1263,10 @@ func (fake *PeerLedger) GetTxValidationCodeByTxID(arg1 string) (peera.TxValidati
 		return fake.GetTxValidationCodeByTxIDStub(arg1)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
 	fakeReturns := fake.getTxValidationCodeByTxIDReturns
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
 func (fake *PeerLedger) GetTxValidationCodeByTxIDCallCount() int {
@@ -1088,7 +1275,7 @@ func (fake *PeerLedger) GetTxValidationCodeByTxIDCallCount() int {
 	return len(fake.getTxValidationCodeByTxIDArgsForCall)
 }
 
-func (fake *PeerLedger) GetTxValidationCodeByTxIDCalls(stub func(string) (peera.TxValidationCode, error)) {
+func (fake *PeerLedger) GetTxValidationCodeByTxIDCalls(stub func(string) (peera.TxValidationCode, uint64, error)) {
 	fake.getTxValidationCodeByTxIDMutex.Lock()
 	defer fake.getTxValidationCodeByTxIDMutex.Unlock()
 	fake.GetTxValidationCodeByTxIDStub = stub
@@ -1101,30 +1288,33 @@ func (fake *PeerLedger) GetTxValidationCodeByTxIDArgsForCall(i int) string {
 	return argsForCall.arg1
 }
 
-func (fake *PeerLedger) GetTxValidationCodeByTxIDReturns(result1 peera.TxValidationCode, result2 error) {
+func (fake *PeerLedger) GetTxValidationCodeByTxIDReturns(result1 peera.TxValidationCode, result2 uint64, result3 error) {
 	fake.getTxValidationCodeByTxIDMutex.Lock()
 	defer fake.getTxValidationCodeByTxIDMutex.Unlock()
 	fake.GetTxValidationCodeByTxIDStub = nil
 	fake.getTxValidationCodeByTxIDReturns = struct {
 		result1 peera.TxValidationCode
-		result2 error
-	}{result1, result2}
+		result2 uint64
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *PeerLedger) GetTxValidationCodeByTxIDReturnsOnCall(i int, result1 peera.TxValidationCode, result2 error) {
+func (fake *PeerLedger) GetTxValidationCodeByTxIDReturnsOnCall(i int, result1 peera.TxValidationCode, result2 uint64, result3 error) {
 	fake.getTxValidationCodeByTxIDMutex.Lock()
 	defer fake.getTxValidationCodeByTxIDMutex.Unlock()
 	fake.GetTxValidationCodeByTxIDStub = nil
 	if fake.getTxValidationCodeByTxIDReturnsOnCall == nil {
 		fake.getTxValidationCodeByTxIDReturnsOnCall = make(map[int]struct {
 			result1 peera.TxValidationCode
-			result2 error
+			result2 uint64
+			result3 error
 		})
 	}
 	fake.getTxValidationCodeByTxIDReturnsOnCall[i] = struct {
 		result1 peera.TxValidationCode
-		result2 error
-	}{result1, result2}
+		result2 uint64
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *PeerLedger) NewHistoryQueryExecutor() (ledger.HistoryQueryExecutor, error) {
@@ -1300,13 +1490,195 @@ func (fake *PeerLedger) NewTxSimulatorReturnsOnCall(i int, result1 ledger.TxSimu
 	}{result1, result2}
 }
 
+func (fake *PeerLedger) PendingSnapshotRequests() ([]uint64, error) {
+	fake.pendingSnapshotRequestsMutex.Lock()
+	ret, specificReturn := fake.pendingSnapshotRequestsReturnsOnCall[len(fake.pendingSnapshotRequestsArgsForCall)]
+	fake.pendingSnapshotRequestsArgsForCall = append(fake.pendingSnapshotRequestsArgsForCall, struct {
+	}{})
+	fake.recordInvocation("PendingSnapshotRequests", []interface{}{})
+	fake.pendingSnapshotRequestsMutex.Unlock()
+	if fake.PendingSnapshotRequestsStub != nil {
+		return fake.PendingSnapshotRequestsStub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	fakeReturns := fake.pendingSnapshotRequestsReturns
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *PeerLedger) PendingSnapshotRequestsCallCount() int {
+	fake.pendingSnapshotRequestsMutex.RLock()
+	defer fake.pendingSnapshotRequestsMutex.RUnlock()
+	return len(fake.pendingSnapshotRequestsArgsForCall)
+}
+
+func (fake *PeerLedger) PendingSnapshotRequestsCalls(stub func() ([]uint64, error)) {
+	fake.pendingSnapshotRequestsMutex.Lock()
+	defer fake.pendingSnapshotRequestsMutex.Unlock()
+	fake.PendingSnapshotRequestsStub = stub
+}
+
+func (fake *PeerLedger) PendingSnapshotRequestsReturns(result1 []uint64, result2 error) {
+	fake.pendingSnapshotRequestsMutex.Lock()
+	defer fake.pendingSnapshotRequestsMutex.Unlock()
+	fake.PendingSnapshotRequestsStub = nil
+	fake.pendingSnapshotRequestsReturns = struct {
+		result1 []uint64
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *PeerLedger) PendingSnapshotRequestsReturnsOnCall(i int, result1 []uint64, result2 error) {
+	fake.pendingSnapshotRequestsMutex.Lock()
+	defer fake.pendingSnapshotRequestsMutex.Unlock()
+	fake.PendingSnapshotRequestsStub = nil
+	if fake.pendingSnapshotRequestsReturnsOnCall == nil {
+		fake.pendingSnapshotRequestsReturnsOnCall = make(map[int]struct {
+			result1 []uint64
+			result2 error
+		})
+	}
+	fake.pendingSnapshotRequestsReturnsOnCall[i] = struct {
+		result1 []uint64
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *PeerLedger) SubmitSnapshotRequest(arg1 uint64) error {
+	fake.submitSnapshotRequestMutex.Lock()
+	ret, specificReturn := fake.submitSnapshotRequestReturnsOnCall[len(fake.submitSnapshotRequestArgsForCall)]
+	fake.submitSnapshotRequestArgsForCall = append(fake.submitSnapshotRequestArgsForCall, struct {
+		arg1 uint64
+	}{arg1})
+	fake.recordInvocation("SubmitSnapshotRequest", []interface{}{arg1})
+	fake.submitSnapshotRequestMutex.Unlock()
+	if fake.SubmitSnapshotRequestStub != nil {
+		return fake.SubmitSnapshotRequestStub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	fakeReturns := fake.submitSnapshotRequestReturns
+	return fakeReturns.result1
+}
+
+func (fake *PeerLedger) SubmitSnapshotRequestCallCount() int {
+	fake.submitSnapshotRequestMutex.RLock()
+	defer fake.submitSnapshotRequestMutex.RUnlock()
+	return len(fake.submitSnapshotRequestArgsForCall)
+}
+
+func (fake *PeerLedger) SubmitSnapshotRequestCalls(stub func(uint64) error) {
+	fake.submitSnapshotRequestMutex.Lock()
+	defer fake.submitSnapshotRequestMutex.Unlock()
+	fake.SubmitSnapshotRequestStub = stub
+}
+
+func (fake *PeerLedger) SubmitSnapshotRequestArgsForCall(i int) uint64 {
+	fake.submitSnapshotRequestMutex.RLock()
+	defer fake.submitSnapshotRequestMutex.RUnlock()
+	argsForCall := fake.submitSnapshotRequestArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *PeerLedger) SubmitSnapshotRequestReturns(result1 error) {
+	fake.submitSnapshotRequestMutex.Lock()
+	defer fake.submitSnapshotRequestMutex.Unlock()
+	fake.SubmitSnapshotRequestStub = nil
+	fake.submitSnapshotRequestReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *PeerLedger) SubmitSnapshotRequestReturnsOnCall(i int, result1 error) {
+	fake.submitSnapshotRequestMutex.Lock()
+	defer fake.submitSnapshotRequestMutex.Unlock()
+	fake.SubmitSnapshotRequestStub = nil
+	if fake.submitSnapshotRequestReturnsOnCall == nil {
+		fake.submitSnapshotRequestReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.submitSnapshotRequestReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *PeerLedger) TxIDExists(arg1 string) (bool, error) {
+	fake.txIDExistsMutex.Lock()
+	ret, specificReturn := fake.txIDExistsReturnsOnCall[len(fake.txIDExistsArgsForCall)]
+	fake.txIDExistsArgsForCall = append(fake.txIDExistsArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	fake.recordInvocation("TxIDExists", []interface{}{arg1})
+	fake.txIDExistsMutex.Unlock()
+	if fake.TxIDExistsStub != nil {
+		return fake.TxIDExistsStub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	fakeReturns := fake.txIDExistsReturns
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *PeerLedger) TxIDExistsCallCount() int {
+	fake.txIDExistsMutex.RLock()
+	defer fake.txIDExistsMutex.RUnlock()
+	return len(fake.txIDExistsArgsForCall)
+}
+
+func (fake *PeerLedger) TxIDExistsCalls(stub func(string) (bool, error)) {
+	fake.txIDExistsMutex.Lock()
+	defer fake.txIDExistsMutex.Unlock()
+	fake.TxIDExistsStub = stub
+}
+
+func (fake *PeerLedger) TxIDExistsArgsForCall(i int) string {
+	fake.txIDExistsMutex.RLock()
+	defer fake.txIDExistsMutex.RUnlock()
+	argsForCall := fake.txIDExistsArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *PeerLedger) TxIDExistsReturns(result1 bool, result2 error) {
+	fake.txIDExistsMutex.Lock()
+	defer fake.txIDExistsMutex.Unlock()
+	fake.TxIDExistsStub = nil
+	fake.txIDExistsReturns = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *PeerLedger) TxIDExistsReturnsOnCall(i int, result1 bool, result2 error) {
+	fake.txIDExistsMutex.Lock()
+	defer fake.txIDExistsMutex.Unlock()
+	fake.TxIDExistsStub = nil
+	if fake.txIDExistsReturnsOnCall == nil {
+		fake.txIDExistsReturnsOnCall = make(map[int]struct {
+			result1 bool
+			result2 error
+		})
+	}
+	fake.txIDExistsReturnsOnCall[i] = struct {
+		result1 bool
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *PeerLedger) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.cancelSnapshotRequestMutex.RLock()
+	defer fake.cancelSnapshotRequestMutex.RUnlock()
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
 	fake.commitLegacyMutex.RLock()
 	defer fake.commitLegacyMutex.RUnlock()
+	fake.commitNotificationsChannelMutex.RLock()
+	defer fake.commitNotificationsChannelMutex.RUnlock()
 	fake.commitPvtDataOfOldBlocksMutex.RLock()
 	defer fake.commitPvtDataOfOldBlocksMutex.RUnlock()
 	fake.doesPvtDataInfoExistMutex.RLock()
@@ -1339,6 +1711,12 @@ func (fake *PeerLedger) Invocations() map[string][][]interface{} {
 	defer fake.newQueryExecutorMutex.RUnlock()
 	fake.newTxSimulatorMutex.RLock()
 	defer fake.newTxSimulatorMutex.RUnlock()
+	fake.pendingSnapshotRequestsMutex.RLock()
+	defer fake.pendingSnapshotRequestsMutex.RUnlock()
+	fake.submitSnapshotRequestMutex.RLock()
+	defer fake.submitSnapshotRequestMutex.RUnlock()
+	fake.txIDExistsMutex.RLock()
+	defer fake.txIDExistsMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

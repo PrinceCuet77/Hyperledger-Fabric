@@ -32,14 +32,6 @@ execution and ordering are performed by the same nodes.
 
 ## Orderer nodes and channel configuration
 
-In addition to their **ordering** role, orderers also maintain the list of
-organizations that are allowed to create channels. This list of organizations is
-known as the "consortium", and the list itself is kept in the configuration of
-the "orderer system channel" (also known as the "ordering system channel"). By
-default, this list, and the channel it lives on, can only be edited by the
-orderer admin. Note that it is possible for an ordering service to hold several
-of these lists, which makes the consortium a vehicle for Fabric multi-tenancy.
-
 Orderers also enforce basic access control for channels, restricting who can
 read and write data to them, and who can configure them. Remember that who
 is authorized to modify a configuration element in a channel is subject to the
@@ -51,11 +43,11 @@ configuration update to make sure that the requestor has the proper
 administrative rights. If so, the orderer validates the update request against
 the existing configuration, generates a new configuration transaction,
 and packages it into a block that is relayed to all peers on the channel. The
-peers then processs the configuration transactions in order to verify that the
+peers then process the configuration transactions in order to verify that the
 modifications approved by the orderer do indeed satisfy the policies defined in
 the channel.
 
-## Orderer nodes and Identity
+## Orderer nodes and identity
 
 Everything that interacts with a blockchain network, including peers,
 applications, admins, and orderers, acquires their organizational identity from
@@ -71,7 +63,7 @@ a root CA and then intermediate CAs associated with that root CA, is up to you.
 
 ## Orderers and the transaction flow
 
-### Phase one: Proposal
+### Phase one: Transaction Proposal and Endorsement
 
 We've seen from our topic on [Peers](../peers/peers.html) that they form the basis
 for a blockchain network, hosting ledgers, which can be queried and updated by
@@ -81,54 +73,44 @@ Specifically, applications that want to update the ledger are involved in a
 process with three phases that ensures all of the peers in a blockchain network
 keep their ledgers consistent with each other.
 
-In the first phase, a client application sends a transaction proposal to
-a subset of peers that will invoke a smart contract to produce a proposed
-ledger update and then endorse the results. The endorsing peers do not apply
-the proposed update to their copy of the ledger at this time. Instead, the
-endorsing peers return a proposal response to the client application. The
-endorsed transaction proposals will ultimately be ordered into blocks in phase
-two, and then distributed to all peers for final validation and commit in
-phase three.
+In the first phase, a client application sends a transaction proposal to the Fabric
+Gateway service, via a trusted peer. This peer executes the proposed transaction or
+forwards it to another peer in its organization for execution.
 
-For an in-depth look at the first phase, refer back to the [Peers](../peers/peers.html#phase-1-proposal) topic.
+The gateway also forwards the transaction to peers in the organizations required by the endorsement policy. These endorsing peers run the transaction and return the
+transaction response to the gateway service. They do not apply the proposed update to
+their copy of the ledger at this time. The endorsed transaction proposals will ultimately
+be ordered into blocks in phase two, and then distributed to all peers for final validation
+and commitment to the ledger in phase three.
 
-### Phase two: Ordering and packaging transactions into blocks
+Note: Fabric v2.3 SDKs embed the logic of the v2.4 Fabric Gateway service in the client application --- refer to the [v2.3 Applications and Peers](https://hyperledger-fabric.readthedocs.io/en/release-2.3/peers/peers.html#applications-and-peers) topic for details.
 
-After the completion of the first phase of a transaction, a client
-application has received an endorsed transaction proposal response from a set of
-peers. It's now time for the second phase of a transaction.
+For an in-depth look at phase one, refer back to the [Peers](../peers/peers.html#applications-and-peers) topic.
 
-In this phase, application clients submit transactions containing endorsed
-transaction proposal responses to an ordering service node. The ordering service
-creates blocks of transactions which will ultimately be distributed to
-all peers on the channel for final validation and commit in phase three.
+### Phase two: Transaction Submission and Ordering
+
+With successful completion of the first transaction phase (proposal), the client
+application has received an endorsed transaction proposal response from the
+Fabric Gateway service for signing. For an endorsed transaction, the gateway service
+forwards the transaction to the ordering service, which orders it with
+other endorsed transactions, and packages them all into a block.
+
+The ordering service creates these blocks of transactions, which will ultimately
+be distributed to all peers on the channel for validation and commitment to
+the ledger in phase three. The blocks themselves are also ordered and are the
+basic components of a blockchain ledger.
 
 Ordering service nodes receive transactions from many different application
-clients concurrently. These ordering service nodes work together to collectively
-form the ordering service. Its job is to arrange batches of submitted transactions
-into a well-defined sequence and package them into *blocks*. These blocks will
-become the *blocks* of the blockchain!
+clients (via the gateway) concurrently. These ordering service nodes collectively
+form the ordering service, which may be shared by multiple channels.
 
 The number of transactions in a block depends on channel configuration
 parameters related to the desired size and maximum elapsed duration for a
 block (`BatchSize` and `BatchTimeout` parameters, to be exact). The blocks are
-then saved to the orderer's ledger and distributed to all peers that have joined
-the channel. If a peer happens to be down at this time, or joins the channel
-later, it will receive the blocks after reconnecting to an ordering service
-node, or by gossiping with another peer. We'll see how this block is processed
-by peers in the third phase.
-
-![Orderer1](./orderer.diagram.1.png)
-
-*The first role of an ordering node is to package proposed ledger updates. In
-this example, application A1 sends a transaction T1 endorsed by E1 and E2 to
-the orderer O1. In parallel, Application A2 sends transaction T2 endorsed by E1
-to the orderer O1. O1 packages transaction T1 from application A1 and
-transaction T2 from application A2 together with other transactions from other
-applications in the network into block B2. We can see that in B2, the
-transaction order is T1,T2,T3,T4,T6,T5 -- which may not be the order in which
-these transactions arrived at the orderer! (This example shows a very
-simplified ordering service configuration with only one ordering node.)*
+then saved to the orderer's ledger and distributed to all peers on the channel.
+If a peer happens to be down at this time, or joins
+the channel later, it will receive the blocks by gossiping with another peer.
+We'll see how this block is processed by peers in the third phase.
 
 It's worth noting that the sequencing of transactions in a block is not
 necessarily the same as the order received by the ordering service, since there
@@ -143,36 +125,36 @@ packaged into multiple different blocks that compete to form a chain.
 In Hyperledger Fabric, the blocks generated by the ordering service are
 **final**. Once a transaction has been written to a block, its position in the
 ledger is immutably assured. As we said earlier, Hyperledger Fabric's finality
-means that there are no **ledger forks** --- validated transactions will never
-be reverted or dropped.
+means that there are no **ledger forks** --- validated and committed transactions
+will never be reverted or dropped.
 
-We can also see that, whereas peers execute smart contracts and process transactions,
+We can also see that, whereas peers execute smart contracts (chaincode) and process transactions,
 orderers most definitely do not. Every authorized transaction that arrives at an
-orderer is mechanically packaged in a block --- the orderer makes no judgement
+orderer is then mechanically packaged into a block --- the orderer makes no judgement
 as to the content of a transaction (except for channel configuration transactions,
 as mentioned earlier).
 
 At the end of phase two, we see that orderers have been responsible for the simple
 but vital processes of collecting proposed transaction updates, ordering them,
-and packaging them into blocks, ready for distribution.
+and packaging them into blocks, ready for distribution to the channel peers.
 
-### Phase three: Validation and commit
+### Phase three: Transaction Validation and Commitment
 
-The third phase of the transaction workflow involves the distribution and
-subsequent validation of blocks from the orderer to the peers, where they can be
-committed to the ledger.
+The third phase of the transaction workflow involves the distribution of
+ordered and packaged blocks from the ordering service to the channel peers
+for validation and commitment to the ledger.
 
-Phase 3 begins with the orderer distributing blocks to all peers connected to
-it. It's also worth noting that not every peer needs to be connected to an orderer ---
+Phase three begins with the ordering service distributing blocks to all channel
+peers. It's worth noting that not every peer needs to be connected to an orderer ---
 peers can cascade blocks to other peers using the [**gossip**](../gossip.html)
-protocol.
+protocol --- although receiving blocks directly from the ordering service is
+recommended.
 
-Each peer will validate distributed blocks independently, but in a deterministic
-fashion, ensuring that ledgers remain consistent. Specifically, each peer in the
-channel will validate each transaction in the block to ensure it has been endorsed
-by the required organization's peers, that its endorsements match, and that
-it hasn't become invalidated by other recently committed transactions which may
-have been in-flight when the transaction was originally endorsed. Invalidated
+Each peer will validate distributed blocks independently, ensuring that ledgers
+remain consistent. Specifically, each peer in the channel will validate each
+transaction in the block to ensure it has been endorsed
+by the required organizations, that its endorsements match, and that
+it hasn't become invalidated by other recently committed transactions. Invalidated
 transactions are still retained in the immutable block created by the orderer,
 but they are marked as invalid by the peer and do not update the ledger's state.
 
@@ -186,10 +168,10 @@ ledger L1 on P2. Once this process is complete, the ledger L1 has been
 consistently updated on peers P1 and P2, and each may inform connected
 applications that the transaction has been processed.*
 
-In summary, phase three sees the blocks generated by the ordering service applied
-consistently to the ledger. The strict ordering of transactions into blocks
-allows each peer to validate that transaction updates are consistently applied
-across the blockchain network.
+In summary, phase three sees the blocks of transactions created by the ordering
+service applied consistently to the ledger by the peers. The strict
+ordering of transactions into blocks allows each peer to validate that transaction
+updates are consistently applied across the channel.
 
 For a deeper look at phase 3, refer back to the [Peers](../peers/peers.html#phase-3-validation-and-commit) topic.
 
@@ -201,7 +183,7 @@ implementations for achieving consensus on the strict ordering of transactions
 between ordering service nodes.
 
 For information about how to stand up an ordering node (regardless of the
-implementation the node will be used in), check out [our documentation on standing up an ordering node](../orderer_deploy.html).
+implementation the node will be used in), check out [our documentation on deploying a production ordering service](../deployorderer/ordererplan.html).
 
 * **Raft** (recommended)
 
@@ -213,7 +195,7 @@ implementation the node will be used in), check out [our documentation on standi
   up and manage than Kafka-based ordering services, and their design allows
   different organizations to contribute nodes to a distributed ordering service.
 
-* **Kafka** (deprecated in v2.0)
+* **Kafka** (deprecated in v2.x)
 
   Similar to Raft-based ordering, Apache Kafka is a CFT implementation that uses
   a "leader and follower" node configuration. Kafka utilizes a ZooKeeper
@@ -221,17 +203,16 @@ implementation the node will be used in), check out [our documentation on standi
   available since Fabric v1.0, but many users may find the additional
   administrative overhead of managing a Kafka cluster intimidating or undesirable.
 
-* **Solo** (deprecated in v2.0)
+* **Solo** (deprecated in v2.x)
 
   The Solo implementation of the ordering service is intended for test only and
-  consists only of a single ordering node.  It has been deprecated and may be
-  removed entirely in a future release.  Existing users of Solo should move to
+  consists only of a single ordering node. It has been deprecated and may be
+  removed entirely in a future release. Existing users of Solo should move to
   a single node Raft network for equivalent function.
 
 ## Raft
 
-For information on how to configure a Raft ordering service, check out our
-[documentation on configuring a Raft ordering service](../raft_configuration.html).
+For information on how to customize the `orderer.yaml` file that determines the configuration of an ordering node, check out the [Checklist for a production ordering node](../deployorderer/ordererchecklist.html).
 
 The go-to ordering service choice for production networks, the Fabric
 implementation of the established Raft protocol uses a "leader and follower"
@@ -243,7 +224,12 @@ majority of ordering nodes (what's known as a "quorum") remaining, Raft is said
 to be "crash fault tolerant" (CFT). In other words, if there are three nodes in a
 channel, it can withstand the loss of one node (leaving two remaining). If you
 have five nodes in a channel, you can lose two nodes (leaving three
-remaining nodes).
+remaining nodes). This feature of a Raft ordering service is a factor in the
+establishment of a high availability strategy for your ordering service. Additionally,
+in a production environment, you would want to spread these nodes across data
+centers and even locations. For example, by putting one node in three different
+data centers. That way, if a data center or entire location becomes unavailable,
+the nodes in the other data centers continue to operate.
 
 From the perspective of the service they provide to a network or a channel, Raft
 and the existing Kafka-based ordering service (which we'll talk about later) are
@@ -251,22 +237,22 @@ similar. They're both CFT ordering services using the leader and follower
 design. If you are an application developer, smart contract developer, or peer
 administrator, you will not notice a functional difference between an ordering
 service based on Raft versus Kafka. However, there are a few major differences worth
-considering, especially if you intend to manage an ordering service:
+considering, especially if you intend to manage an ordering service.
 
 * Raft is easier to set up. Although Kafka has many admirers, even those
 admirers will (usually) admit that deploying a Kafka cluster and its ZooKeeper
 ensemble can be tricky, requiring a high level of expertise in Kafka
 infrastructure and settings. Additionally, there are many more components to
 manage with Kafka than with Raft, which means that there are more places where
-things can go wrong. And Kafka has its own versions, which must be coordinated
+things can go wrong. Kafka also has its own versions, which must be coordinated
 with your orderers. **With Raft, everything is embedded into your ordering node**.
 
 * Kafka and Zookeeper are not designed to be run across large networks. While
 Kafka is CFT, it should be run in a tight group of hosts. This means that
 practically speaking you need to have one organization run the Kafka cluster.
 Given that, having ordering nodes run by different organizations when using Kafka
-(which Fabric supports) doesn't give you much in terms of decentralization because
-the nodes will all go to the same Kafka cluster which is under the control of a
+(which Fabric supports) doesn't decentralize the nodes because ultimately
+the nodes all go to a Kafka cluster which is under the control of a
 single organization. With Raft, each organization can have its own ordering
 nodes, participating in the ordering service, which leads to a more decentralized
 system.
@@ -292,7 +278,7 @@ Raft were driven by this. If you are interested in BFT, learning how to use
 Raft should ease the transition.
 
 For all of these reasons, support for Kafka-based ordering service is being
-deprecated in Fabric v2.0.
+deprecated in Fabric v2.x.
 
 Note: Similar to Solo and Kafka, a Raft ordering service can lose transactions
 after acknowledgement of receipt has been sent to a client. For example, if the
@@ -318,9 +304,6 @@ the entries and their order, making the logs on the various orderers replicated.
 
 **Consenter set**. The ordering nodes actively participating in the consensus
 mechanism for a given channel and receiving replicated logs for the channel.
-This can be all of the nodes available (either in a single cluster or in
-multiple clusters contributing to the system channel), or a subset of those
-nodes.
 
 **Finite-State Machine (FSM)**. Every ordering node in Raft has an FSM and
 collectively they're used to ensure that the sequence of logs in the various
@@ -333,7 +316,7 @@ there to be a quorum. If a quorum of nodes is unavailable for any reason, the
 ordering service cluster becomes unavailable for both read and write operations
 on the channel, and no new logs can be committed.
 
-**Leader**. This is not a new concept --- Kafka also uses leaders, as we've said ---
+**Leader**. This is not a new concept --- Kafka also uses leaders ---
 but it's critical to understand that at any given time, a channel's consenter set
 elects a single node to be the leader (we'll describe how this happens in Raft
 later). The leader is responsible for ingesting new log entries, replicating
@@ -352,17 +335,7 @@ initiate a leader election and one of them will be elected the new leader.
 
 ### Raft in a transaction flow
 
-Every channel runs on a **separate** instance of the Raft protocol, which allows
-each instance to elect a different leader. This configuration also allows
-further decentralization of the service in use cases where clusters are made up
-of ordering nodes controlled by different organizations. While all Raft nodes
-must be part of the system channel, they do not necessarily have to be part of
-all application channels. Channel creators (and channel admins) have the ability
-to pick a subset of the available orderers and to add or remove ordering nodes
-as needed (as long as only a single node is added or removed at a time).
-
-While this configuration creates more overhead in the form of redundant heartbeat
-messages and goroutines, it lays necessary groundwork for BFT.
+Every channel runs on a **separate** instance of the Raft protocol, which allows each instance to elect a different leader. This configuration also allows further decentralization of the service in use cases where clusters are made up of ordering nodes controlled by different organizations. Ordering nodes can be added or removed from a channel as needed as long as only a single node is added or removed at a time. While this configuration creates more overhead in the form of redundant heartbeat messages and goroutines, it lays necessary groundwork for BFT.
 
 In Raft, transactions (in the form of proposals or configuration updates) are
 automatically routed by the ordering node that receives the transaction to the
@@ -411,7 +384,7 @@ therefore receive block `180` from `L` and then make a `Deliver` request for
 blocks `101` to `180`. Blocks `180` to `196` would then be replicated to `R1`
 through the normal Raft protocol.
 
-### Kafka (deprecated in v2.0)
+### Kafka (deprecated in v2.x)
 
 The other crash fault tolerant ordering service supported by Fabric is an
 adaptation of a Kafka distributed streaming platform for use as a cluster of
@@ -434,7 +407,7 @@ Kafka-based ordering service. You can also consult
 [this sample configuration file](https://github.com/hyperledger/fabric/blob/release-1.1/bddtests/dc-orderer-kafka.yml)
 for a brief explanation of the sensible defaults for Kafka and ZooKeeper.
 
-To learn how to bring up a a Kafka-based ordering service, check out [our documentation on Kafka](../kafka.html).
+To learn how to bring up a Kafka-based ordering service, check out [our documentation on Kafka](../kafka.html).
 
 <!--- Licensed under Creative Commons Attribution 4.0 International License
 https://creativecommons.org/licenses/by/4.0/) -->

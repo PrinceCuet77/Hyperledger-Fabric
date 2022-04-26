@@ -148,8 +148,10 @@ Concurrency Control Version Check
 
 Concurrency Control Version Check is a method of keeping ledger state in sync across
 peers on a channel. Peers execute transactions in parallel, and before committing
-to the ledger, peers check whether the state read at the time the transaction was executed
-has been modified. If the data read for the transaction has changed between execution time and
+to the ledger, peers check whether the state read at the time the transaction
+was executed has been modified in a new block that was in-flight at time of execution
+or in a prior transaction in the same block.
+If the data read for the transaction has changed between execution time and
 commit time, then a Concurrency Control Version Check violation has
 occurred, and the transaction is marked as invalid on the ledger and values
 are not updated in the state database.
@@ -330,7 +332,7 @@ submit the read-only transaction, unless there is desire to log the read on the 
 for audit purpose. The invoke includes a channel identifier, the chaincode function to
 invoke, and an array of arguments.
 
-.. _Leader
+.. _Leader:
 
 Leader
 ------
@@ -383,7 +385,7 @@ process called **consensus**. The term **Distributed Ledger Technology**
 singular, but has many identical copies distributed across a set of network
 nodes (peers and the ordering service).
 
-.. _Log-entry
+.. _Log-entry:
 
 Log entry
 ---------
@@ -496,7 +498,7 @@ Policy
 ------
 
 Policies are expressions composed of properties of digital identities, for
-example: ``Org1.Peer OR Org2.Peer``. They are used to restrict access to
+example: ``OR('Org1.peer', 'Org2.peer')``. They are used to restrict access to
 resources on a blockchain network. For instance, they dictate who can read from
 or write to a channel, or who can use a specific chaincode API via an ACL_.
 Policies may be defined in ``configtx.yaml`` prior to bootstrapping an ordering
@@ -571,7 +573,7 @@ Raft
 
 New for v1.4.1, Raft is a crash fault tolerant (CFT) ordering service
 implementation based on the `etcd library <https://coreos.com/etcd/>`_
-of the `Raft protocol` <https://raft.github.io/raft.pdf>`_. Raft follows a
+of the `Raft protocol <https://raft.github.io/raft.pdf>`_. Raft follows a
 "leader and follower" model, where a leader node is elected (per channel) and
 its decisions are replicated by the followers. Raft ordering services should
 be easier to set up and manage than Kafka-based ordering services, and their
@@ -590,9 +592,8 @@ cryptographic algorithms for signatures, logging frameworks and state stores,
 are easily swapped in and out of the SDK. The SDK provides APIs for transaction
 processing, membership services, node traversal and event handling.
 
-Currently, the two officially supported SDKs are for Node.js and Java, while two
-more -- Python and Go -- are not yet official but can still be downloaded
-and tested.
+Currently, there are three officially supported SDKs -- for Node.js, Java, and Go. While the Python SDK
+is not yet official but can still be downloaded and tested.
 
 .. _Smart-Contract:
 

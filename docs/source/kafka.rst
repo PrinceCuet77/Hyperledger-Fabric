@@ -16,7 +16,7 @@ network.
 For information about the role orderers play in a network and in a transaction
 flow, checkout our :doc:`orderer/ordering_service` documentation.
 
-For information on how to set up an ordering node, check out our :doc:`orderer_deploy`
+For information on how to set up an ordering node, check out our :doc:`deployorderer/ordererplan`
 documentation.
 
 For information about configuring Raft ordering services, check out :doc:`raft_configuration`.
@@ -210,4 +210,4 @@ Set environment variable ``FABRIC_LOGGING_SPEC`` to ``DEBUG`` and set
 ``Kafka.Verbose`` to ``true`` in ``orderer.yaml`` .
 
 .. Licensed under Creative Commons Attribution 4.0 International License
-https://creativecommons.org/licenses/by/4.0/
+   https://creativecommons.org/licenses/by/4.0/

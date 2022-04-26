@@ -22,7 +22,7 @@ import (
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	msptesttools "github.com/hyperledger/fabric/msp/mgmt/testtools"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func createCIS() *pb.ChaincodeInvocationSpec {
@@ -30,12 +30,14 @@ func createCIS() *pb.ChaincodeInvocationSpec {
 		ChaincodeSpec: &pb.ChaincodeSpec{
 			Type:        pb.ChaincodeSpec_GOLANG,
 			ChaincodeId: &pb.ChaincodeID{Name: "chaincode_name"},
-			Input:       &pb.ChaincodeInput{Args: [][]byte{[]byte("arg1"), []byte("arg2")}}}}
+			Input:       &pb.ChaincodeInput{Args: [][]byte{[]byte("arg1"), []byte("arg2")}},
+		},
+	}
 }
 
 func TestGetChaincodeDeploymentSpec(t *testing.T) {
 	_, err := protoutil.UnmarshalChaincodeDeploymentSpec([]byte("bad spec"))
-	assert.Error(t, err, "Expected error with malformed spec")
+	require.Error(t, err, "Expected error with malformed spec")
 
 	cds, _ := proto.Marshal(&pb.ChaincodeDeploymentSpec{
 		ChaincodeSpec: &pb.ChaincodeSpec{
@@ -43,7 +45,7 @@ func TestGetChaincodeDeploymentSpec(t *testing.T) {
 		},
 	})
 	_, err = protoutil.UnmarshalChaincodeDeploymentSpec(cds)
-	assert.NoError(t, err, "Unexpected error getting deployment spec")
+	require.NoError(t, err, "Unexpected error getting deployment spec")
 }
 
 func TestCDSProposals(t *testing.T) {
@@ -63,22 +65,21 @@ func TestCDSProposals(t *testing.T) {
 
 	// install
 	prop, txid, err = protoutil.CreateInstallProposalFromCDS(cds, creator)
-	assert.NotNil(t, prop, "Install proposal should not be nil")
-	assert.NoError(t, err, "Unexpected error creating install proposal")
-	assert.NotEqual(t, "", txid, "txid should not be empty")
+	require.NotNil(t, prop, "Install proposal should not be nil")
+	require.NoError(t, err, "Unexpected error creating install proposal")
+	require.NotEqual(t, "", txid, "txid should not be empty")
 
 	// deploy
 	prop, txid, err = protoutil.CreateDeployProposalFromCDS(chainID, cds, creator, policy, escc, vscc, nil)
-	assert.NotNil(t, prop, "Deploy proposal should not be nil")
-	assert.NoError(t, err, "Unexpected error creating deploy proposal")
-	assert.NotEqual(t, "", txid, "txid should not be empty")
+	require.NotNil(t, prop, "Deploy proposal should not be nil")
+	require.NoError(t, err, "Unexpected error creating deploy proposal")
+	require.NotEqual(t, "", txid, "txid should not be empty")
 
 	// upgrade
 	prop, txid, err = protoutil.CreateUpgradeProposalFromCDS(chainID, cds, creator, policy, escc, vscc, nil)
-	assert.NotNil(t, prop, "Upgrade proposal should not be nil")
-	assert.NoError(t, err, "Unexpected error creating upgrade proposal")
-	assert.NotEqual(t, "", txid, "txid should not be empty")
-
+	require.NotNil(t, prop, "Upgrade proposal should not be nil")
+	require.NoError(t, err, "Unexpected error creating upgrade proposal")
+	require.NotEqual(t, "", txid, "txid should not be empty")
 }
 
 func TestProposal(t *testing.T) {
@@ -204,9 +205,9 @@ func TestProposalWithTxID(t *testing.T) {
 		"testtx",
 		map[string][]byte{"certx": []byte("transient")},
 	)
-	assert.Nil(t, err)
-	assert.NotNil(t, prop)
-	assert.Equal(t, txid, "testtx")
+	require.Nil(t, err)
+	require.NotNil(t, prop)
+	require.Equal(t, txid, "testtx")
 
 	prop, txid, err = protoutil.CreateChaincodeProposalWithTxIDAndTransient(
 		common.HeaderType_ENDORSER_TRANSACTION,
@@ -216,9 +217,9 @@ func TestProposalWithTxID(t *testing.T) {
 		"",
 		map[string][]byte{"certx": []byte("transient")},
 	)
-	assert.Nil(t, err)
-	assert.NotNil(t, prop)
-	assert.NotEmpty(t, txid)
+	require.Nil(t, err)
+	require.NotNil(t, prop)
+	require.NotEmpty(t, txid)
 }
 
 func TestProposalResponse(t *testing.T) {
@@ -226,7 +227,8 @@ func TestProposalResponse(t *testing.T) {
 		ChaincodeId: "ccid",
 		EventName:   "EventName",
 		Payload:     []byte("EventPayload"),
-		TxId:        "TxID"}
+		TxId:        "TxID",
+	}
 	ccid := &pb.ChaincodeID{
 		Name:    "ccid",
 		Version: "v1",
@@ -298,7 +300,8 @@ func TestProposalResponse(t *testing.T) {
 		Payload:     prpBytes,
 		Endorsement: &pb.Endorsement{Endorser: []byte("endorser"), Signature: []byte("signature")},
 		Version:     1, // TODO: pick right version number
-		Response:    &pb.Response{Status: 200, Message: "OK"}}
+		Response:    &pb.Response{Status: 200, Message: "OK"},
+	}
 
 	// create a proposal response
 	prBytes, err := protoutil.GetBytesProposalResponse(pr)
@@ -408,7 +411,7 @@ func TestEnvelope(t *testing.T) {
 		t.Fatalf("Could not unmarshal ChaincodeActionPayload, err %s\n", err)
 		return
 	}
-	assert.NotNil(t, cap)
+	require.NotNil(t, cap)
 
 	prp, err := protoutil.UnmarshalProposalResponsePayload(cap.Action.ProposalResponsePayload)
 	if err != nil {
@@ -442,12 +445,12 @@ func TestProposalTxID(t *testing.T) {
 	creator := []byte{2}
 
 	txid := protoutil.ComputeTxID(nonce, creator)
-	assert.NotEmpty(t, txid, "TxID cannot be empty.")
-	assert.Nil(t, protoutil.CheckTxID(txid, nonce, creator))
-	assert.Error(t, protoutil.CheckTxID("", nonce, creator))
+	require.NotEmpty(t, txid, "TxID cannot be empty.")
+	require.Nil(t, protoutil.CheckTxID(txid, nonce, creator))
+	require.Error(t, protoutil.CheckTxID("", nonce, creator))
 
 	txid = protoutil.ComputeTxID(nil, nil)
-	assert.NotEmpty(t, txid, "TxID cannot be empty.")
+	require.NotEmpty(t, txid, "TxID cannot be empty.")
 }
 
 func TestComputeProposalTxID(t *testing.T) {
@@ -465,11 +468,13 @@ func TestComputeProposalTxID(t *testing.T) {
 	t.Logf("% s\n", txid)
 	t.Logf("% s\n", txid2)
 
-	assert.Equal(t, txid, txid2)
+	require.Equal(t, txid, txid2)
 }
 
-var signer msp.SigningIdentity
-var signerSerialized []byte
+var (
+	signer           msp.SigningIdentity
+	signerSerialized []byte
+)
 
 func TestMain(m *testing.M) {
 	// setup the MSP manager so that we can sign/verify
@@ -515,20 +520,20 @@ func TestInvokedChaincodeName(t *testing.T) {
 				}),
 			}),
 		}))
-		assert.NoError(t, err)
-		assert.Equal(t, "cscc", name)
+		require.NoError(t, err)
+		require.Equal(t, "cscc", name)
 	})
 
 	t.Run("BadProposalBytes", func(t *testing.T) {
 		_, err := protoutil.InvokedChaincodeName([]byte("garbage"))
-		assert.EqualError(t, err, "could not unmarshal proposal: proto: can't skip unknown wire type 7")
+		require.EqualError(t, err, "could not unmarshal proposal: proto: can't skip unknown wire type 7")
 	})
 
 	t.Run("BadChaincodeProposalBytes", func(t *testing.T) {
 		_, err := protoutil.InvokedChaincodeName(protoutil.MarshalOrPanic(&pb.Proposal{
 			Payload: []byte("garbage"),
 		}))
-		assert.EqualError(t, err, "could not unmarshal chaincode proposal payload: proto: can't skip unknown wire type 7")
+		require.EqualError(t, err, "could not unmarshal chaincode proposal payload: proto: can't skip unknown wire type 7")
 	})
 
 	t.Run("BadChaincodeInvocationSpec", func(t *testing.T) {
@@ -537,7 +542,7 @@ func TestInvokedChaincodeName(t *testing.T) {
 				Input: []byte("garbage"),
 			}),
 		}))
-		assert.EqualError(t, err, "could not unmarshal chaincode invocation spec: proto: can't skip unknown wire type 7")
+		require.EqualError(t, err, "could not unmarshal chaincode invocation spec: proto: can't skip unknown wire type 7")
 	})
 
 	t.Run("NilChaincodeSpec", func(t *testing.T) {
@@ -546,7 +551,7 @@ func TestInvokedChaincodeName(t *testing.T) {
 				Input: protoutil.MarshalOrPanic(&pb.ChaincodeInvocationSpec{}),
 			}),
 		}))
-		assert.EqualError(t, err, "chaincode spec is nil")
+		require.EqualError(t, err, "chaincode spec is nil")
 	})
 
 	t.Run("NilChaincodeID", func(t *testing.T) {
@@ -557,6 +562,6 @@ func TestInvokedChaincodeName(t *testing.T) {
 				}),
 			}),
 		}))
-		assert.EqualError(t, err, "chaincode id is nil")
+		require.EqualError(t, err, "chaincode id is nil")
 	})
 }

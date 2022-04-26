@@ -1,17 +1,7 @@
 /*
-Copyright IBM Corp. 2016 All Rights Reserved.
+Copyright IBM Corp. All Rights Reserved.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+SPDX-License-Identifier: Apache-2.0
 */
 
 package msp
@@ -83,6 +73,9 @@ func (mgr *mspManagerImpl) GetMSPs() (map[string]MSP, error) {
 
 // DeserializeIdentity returns an identity given its serialized version supplied as argument
 func (mgr *mspManagerImpl) DeserializeIdentity(serializedID []byte) (Identity, error) {
+	if !mgr.up {
+		return nil, errors.New("channel doesn't exist")
+	}
 	// We first deserialize to a SerializedIdentity to get the MSP ID
 	sId := &msp.SerializedIdentity{}
 	err := proto.Unmarshal(serializedID, sId)
@@ -93,13 +86,13 @@ func (mgr *mspManagerImpl) DeserializeIdentity(serializedID []byte) (Identity, e
 	// we can now attempt to obtain the MSP
 	msp := mgr.mspsMap[sId.Mspid]
 	if msp == nil {
-		return nil, errors.Errorf("MSP %s is unknown", sId.Mspid)
+		return nil, errors.Errorf("MSP %s is not defined on channel", sId.Mspid)
 	}
 
 	switch t := msp.(type) {
 	case *bccspmsp:
 		return t.deserializeIdentityInternal(sId.IdBytes)
-	case *idemixmsp:
+	case *idemixMSPWrapper:
 		return t.deserializeIdentityInternal(sId.IdBytes)
 	default:
 		return t.DeserializeIdentity(serializedID)

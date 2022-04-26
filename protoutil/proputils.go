@@ -18,15 +18,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-func validateChannelHeaderType(chdr *common.ChannelHeader, expectedTypes []common.HeaderType) error {
-	for _, t := range expectedTypes {
-		if common.HeaderType(chdr.Type) == t {
-			return nil
-		}
-	}
-	return errors.Errorf("invalid channel header type. expected one of %s, received %s", expectedTypes, common.HeaderType(chdr.Type))
-}
-
 // CreateChaincodeProposal creates a proposal from given input.
 // It returns the proposal and the transaction id associated to the proposal
 func CreateChaincodeProposal(typ common.HeaderType, channelID string, cis *peer.ChaincodeInvocationSpec, creator []byte) (*peer.Proposal, string, error) {
@@ -192,7 +183,7 @@ func GetBytesSignatureHeader(hdr *common.SignatureHeader) ([]byte, error) {
 // GetBytesTransaction get the bytes of Transaction from the message
 func GetBytesTransaction(tx *peer.Transaction) ([]byte, error) {
 	bytes, err := proto.Marshal(tx)
-	return bytes, errors.Wrap(err, "error unmarshaling Transaction")
+	return bytes, errors.Wrap(err, "error unmarshalling Transaction")
 }
 
 // GetBytesPayload get the bytes of Payload from the message

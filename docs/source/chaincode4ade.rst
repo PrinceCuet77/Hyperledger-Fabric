@@ -1,14 +1,13 @@
-Chaincode for Developers
-========================
+Writing Your First Chaincode
+============================
 
 What is Chaincode?
 ------------------
 
-Chaincode is a program, written in `Go <https://golang.org>`_, `node.js <https://nodejs.org>`_,
+Chaincode is a program, written in `Go <https://golang.org>`_, `Node.js <https://nodejs.org>`_,
 or `Java <https://java.com/en/>`_ that implements a prescribed interface.
-Chaincode runs in a secured Docker container isolated from the endorsing peer
-process. Chaincode initializes and manages the ledger state through transactions
-submitted by applications.
+Chaincode runs in a separate process from the peer and initializes and manages
+the ledger state through transactions submitted by applications.
 
 A chaincode typically handles business logic agreed to by members of the
 network, so it similar to a "smart contract". A chaincode can be invoked to update or query
@@ -19,504 +18,547 @@ only read query is allowed. That is, the called chaincode on a different channel
 which does not participate in state validation checks in subsequent commit phase.
 
 In the following sections, we will explore chaincode through the eyes of an
-application developer. We'll present a simple chaincode sample application
-and walk through the purpose of each method in the Chaincode Shim API.
+application developer. We'll present a asset-transfer chaincode sample walkthrough,
+and the purpose of each method in the Fabric Contract API. If you
+are a network operator who is deploying a chaincode to running network,
+visit the :doc:`deploy_chaincode` tutorial and the :doc:`chaincode_lifecycle`
+concept topic.
 
-Chaincode API
--------------
+This tutorial provides an overview of the high level APIs provided by the Fabric Contract API.
+To learn more about developing smart contracts using the Fabric contract API, visit the :doc:`developapps/smartcontract` topic.
 
-Every chaincode program must implement the ``Chaincode`` interface whose methods
-are called in response to received transactions. You can find the reference
-documentation of the Chaincode Shim API for different languages below:
+Fabric Contract API
+-------------------
+
+The ``fabric-contract-api`` provides the contract interface, a high level API for application developers to implement Smart Contracts.
+Within Hyperledger Fabric, Smart Contracts are also known as Chaincode. Working with this API provides a high level entry point to writing business logic.
+Documentation of the Fabric Contract API for different languages can be found at the links below:
+
+  - `Go <https://godoc.org/github.com/hyperledger/fabric-contract-api-go/contractapi>`__
+  - `Node.js <https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/>`__
+  - `Java <https://hyperledger.github.io/fabric-chaincode-java/{BRANCH}/api/org/hyperledger/fabric/contract/package-summary.html>`__
+
+
+Note that when using the contract api, each chaincode function that is called is passed a transaction context "ctx", from which
+you can get the chaincode stub (GetStub() ), which has functions to access the ledger (e.g. GetState() ) and make requests
+to update the ledger (e.g. PutState() ). You can learn more at the language-specific links below.
 
   - `Go <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#Chaincode>`__
-  - `node.js <https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/fabric-shim.ChaincodeInterface.html>`__
-  - `Java <https://hyperledger.github.io/fabric-chaincode-java/{BRANCH}/api/org/hyperledger/fabric/shim/Chaincode.html>`_
+  - `Node.js <https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/fabric-shim.ChaincodeInterface.html>`__
+  - `Java <https://hyperledger.github.io/fabric-chaincode-java/{BRANCH}/api/org/hyperledger/fabric/shim/Chaincode.html>`__
 
-In each language, the ``Invoke`` method is called by clients to submit transaction
-proposals. This method allows you to use the chaincode to read and write data on
-the channel ledger.
-
-You also need to include an ``Init`` method that will serve as the initialization
-function for your chaincode. This method will be called in order to initialize
-the chaincode when it is started or upgraded. By default, this function is never
-executed. However, you can use the chaincode definition to request that the ``Init``
-function be executed. If execution of ``Init`` is requested, fabric will ensure
-that ``Init`` is invoked before any other function and is only invoked once.
-This option provides you additional control over which users can initialize the
-chaincode and the ability to add initial data to the ledger. If you are using
-the peer CLI to approve the chaincode definition, use the ``--init-required``
-flag to request the execution of the ``Init`` function. Then call the ``Init``
-function by using the `peer chaincode invoke` command and passing the
-``--isInit`` flag. If you are using the Fabric SDK for Node.js, visit
-`How to install and start your chaincode <https://hyperledger.github.io/fabric-sdk-node/master/tutorial-chaincode-lifecycle.html>`__. For more information, see :doc:`chaincode4noah`.
-
-The other interface in the chaincode "shim" APIs is the ``ChaincodeStubInterface``:
-
-  - `Go <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStubInterface>`__
-  - `node.js <https://hyperledger.github.io/fabric-chaincode-node/{BRANCH}/api/fabric-shim.ChaincodeStub.html>`__
-  - `Java <https://hyperledger.github.io/fabric-chaincode-java/{BRANCH}/api/org/hyperledger/fabric/shim/ChaincodeStub.html>`_
-
-which is used to access and modify the ledger, and to make invocations between
-chaincodes.
 
 In this tutorial using Go chaincode, we will demonstrate the use of these APIs
-by implementing a simple chaincode application that manages simple "assets".
+by implementing a asset-transfer chaincode application that manages simple "assets".
 
-.. _Simple Asset Chaincode:
+.. _Asset Transfer Chaincode:
 
-Simple Asset Chaincode
-----------------------
-Our application is a basic sample chaincode to create assets
-(key-value pairs) on the ledger.
+Asset Transfer Chaincode
+------------------------
+Our application is a basic sample chaincode to initialize a ledger with assets, create, read, update, and delete assets, check to see
+if an asset exists, and transfer assets from one owner to another.
 
 Choosing a Location for the Code
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you haven't been doing programming in Go, you may want to make sure that
-you have :ref:`Golang` installed and your system properly configured.
+you have `Go <https://golang.org>`_ installed and your system properly configured. We assume
+you are using a version that supports modules.
 
-Now, you will want to create a directory for your chaincode application as a
-child directory of ``$GOPATH/src/``.
+Now, you will want to create a directory for your chaincode application.
 
 To keep things simple, let's use the following command:
 
 .. code:: bash
 
-  mkdir -p $GOPATH/src/sacc && cd $GOPATH/src/sacc
+  // atcc is shorthand for asset transfer chaincode
+  mkdir atcc && cd atcc
 
-Now, let's create the source file that we'll fill in with code:
+Now, let's create the module and the source file that we'll fill in with code:
 
 .. code:: bash
 
-  touch sacc.go
+  go mod init atcc
+  touch atcc.go
 
 Housekeeping
 ^^^^^^^^^^^^
 
 First, let's start with some housekeeping. As with every chaincode, it implements the
-`Chaincode interface <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#Chaincode>`_
-in particular, ``Init`` and ``Invoke`` functions. So, let's add the Go import
-statements for the necessary dependencies for our chaincode. We'll import the
-chaincode shim package and the
-`peer protobuf package <https://godoc.org/github.com/hyperledger/fabric-protos-go/peer>`_.
-Next, let's add a struct ``SimpleAsset`` as a receiver for Chaincode shim functions.
+`fabric-contract-api interface <https://godoc.org/github.com/hyperledger/fabric-contract-api-go/contractapi>`_,
+so let's add the Go import statements for the necessary dependencies for our chaincode. We'll import the
+fabric contract api package and define our SmartContract.
 
 .. code:: go
 
-    package main
+  package main
 
-    import (
-    	"fmt"
+  import (
+    "fmt"
+    "encoding/json"
+    "log"
+    "github.com/hyperledger/fabric-contract-api-go/contractapi"
+  )
 
-    	"github.com/hyperledger/fabric-chaincode-go/shim"
-    	"github.com/hyperledger/fabric-protos-go/peer"
-    )
+  // SmartContract provides functions for managing an Asset
+  type SmartContract struct {
+    contractapi.Contract
+  }
 
-    // SimpleAsset implements a simple chaincode to manage an asset
-    type SimpleAsset struct {
-    }
+Next, let's add a struct ``Asset`` to represent simple assets on the ledger.
+Note the JSON annotations, which will be used to marshal the asset to JSON which is stored on the ledger.
+JSON though is not a deterministic data format - the order of elements can change, whilst still representing the same data semantically.
+The challenge, therefore, is to be able to generate a consistent set of JSON.
+Below is also shown a good approach to achieve consistency which consists of creating an asset object struct following alphabetic order.
+
+.. code:: go
+
+  // Asset describes basic details of what makes up a simple asset
+  // Insert struct field in alphabetic order => to achieve determinism accross languages
+  // golang keeps the order when marshal to json but doesn't order automatically
+
+  type Asset struct {
+    AppraisedValue int    `json:"AppraisedValue"`
+    Color          string `json:"Color"`
+    ID             string `json:"ID"`
+    Owner          string `json:"Owner"`
+    Size           int    `json:"Size"`
+  }
 
 Initializing the Chaincode
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Next, we'll implement the ``Init`` function.
+Next, we'll implement the ``InitLedger`` function to populate the ledger with some initial data.
 
 .. code:: go
 
-  // Init is called during chaincode instantiation to initialize any data.
-  func (t *SimpleAsset) Init(stub shim.ChaincodeStubInterface) peer.Response {
+  // InitLedger adds a base set of assets to the ledger
+  func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
+    assets := []Asset{
+      {ID: "asset1", Color: "blue", Size: 5, Owner: "Tomoko", AppraisedValue: 300},
+      {ID: "asset2", Color: "red", Size: 5, Owner: "Brad", AppraisedValue: 400},
+      {ID: "asset3", Color: "green", Size: 10, Owner: "Jin Soo", AppraisedValue: 500},
+      {ID: "asset4", Color: "yellow", Size: 10, Owner: "Max", AppraisedValue: 600},
+      {ID: "asset5", Color: "black", Size: 15, Owner: "Adriana", AppraisedValue: 700},
+      {ID: "asset6", Color: "white", Size: 15, Owner: "Michel", AppraisedValue: 800},
+    }
 
-  }
+    for _, asset := range assets {
+      assetJSON, err := json.Marshal(asset)
+      if err != nil {
+          return err
+      }
 
-.. note:: Note that chaincode upgrade also calls this function. When writing a
-          chaincode that will upgrade an existing one, make sure to modify the ``Init``
-          function appropriately. In particular, provide an empty "Init" method if there's
-          no "migration" or nothing to be initialized as part of the upgrade.
-
-Next, we'll retrieve the arguments to the ``Init`` call using the
-`ChaincodeStubInterface.GetStringArgs <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStub.GetStringArgs>`_
-function and check for validity. In our case, we are expecting a key-value pair.
-
-  .. code:: go
-
-    // Init is called during chaincode instantiation to initialize any
-    // data. Note that chaincode upgrade also calls this function to reset
-    // or to migrate data, so be careful to avoid a scenario where you
-    // inadvertently clobber your ledger's data!
-    func (t *SimpleAsset) Init(stub shim.ChaincodeStubInterface) peer.Response {
-      // Get the args from the transaction proposal
-      args := stub.GetStringArgs()
-      if len(args) != 2 {
-        return shim.Error("Incorrect arguments. Expecting a key and a value")
+      err = ctx.GetStub().PutState(asset.ID, assetJSON)
+      if err != nil {
+          return fmt.Errorf("failed to put to world state. %v", err)
       }
     }
 
-Next, now that we have established that the call is valid, we'll store the
-initial state in the ledger. To do this, we will call
-`ChaincodeStubInterface.PutState <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStub.PutState>`_
-with the key and value passed in as the arguments. Assuming all went well,
-return a peer.Response object that indicates the initialization was a success.
-
-.. code:: go
-
-  // Init is called during chaincode instantiation to initialize any
-  // data. Note that chaincode upgrade also calls this function to reset
-  // or to migrate data, so be careful to avoid a scenario where you
-  // inadvertently clobber your ledger's data!
-  func (t *SimpleAsset) Init(stub shim.ChaincodeStubInterface) peer.Response {
-    // Get the args from the transaction proposal
-    args := stub.GetStringArgs()
-    if len(args) != 2 {
-      return shim.Error("Incorrect arguments. Expecting a key and a value")
-    }
-
-    // Set up any variables or assets here by calling stub.PutState()
-
-    // We store the key and the value on the ledger
-    err := stub.PutState(args[0], []byte(args[1]))
-    if err != nil {
-      return shim.Error(fmt.Sprintf("Failed to create asset: %s", args[0]))
-    }
-    return shim.Success(nil)
+    return nil
   }
 
-Invoking the Chaincode
-^^^^^^^^^^^^^^^^^^^^^^
+Next, we write a function to create an asset on the ledger that does not yet exist. When writing chaincode, it
+is a good idea to check for the existence of something on the ledger prior to taking an action on it, as is demonstrated
+in the ``CreateAsset`` function below.
 
-First, let's add the ``Invoke`` function's signature.
-
-.. code:: go
-
-    // Invoke is called per transaction on the chaincode. Each transaction is
-    // either a 'get' or a 'set' on the asset created by Init function. The 'set'
-    // method may create a new asset by specifying a new key-value pair.
-    func (t *SimpleAsset) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
-
-    }
-
-As with the ``Init`` function above, we need to extract the arguments from the
-``ChaincodeStubInterface``. The ``Invoke`` function's arguments will be the
-name of the chaincode application function to invoke. In our case, our application
-will simply have two functions: ``set`` and ``get``, that allow the value of an
-asset to be set or its current state to be retrieved. We first call
-`ChaincodeStubInterface.GetFunctionAndParameters <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStub.GetFunctionAndParameters>`_
-to extract the function name and the parameters to that chaincode application
-function.
 
 .. code:: go
 
-    // Invoke is called per transaction on the chaincode. Each transaction is
-    // either a 'get' or a 'set' on the asset created by Init function. The Set
-    // method may create a new asset by specifying a new key-value pair.
-    func (t *SimpleAsset) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
-    	// Extract the function and args from the transaction proposal
-    	fn, args := stub.GetFunctionAndParameters()
+    // CreateAsset issues a new asset to the world state with given details.
+    func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, id string, color string, size int, owner string, appraisedValue int) error {
+      exists, err := s.AssetExists(ctx, id)
+      if err != nil {
+        return err
+      }
+      if exists {
+        return fmt.Errorf("the asset %s already exists", id)
+      }
 
+      asset := Asset{
+        ID:             id,
+        Color:          color,
+        Size:           size,
+        Owner:          owner,
+        AppraisedValue: appraisedValue,
+      }
+      assetJSON, err := json.Marshal(asset)
+      if err != nil {
+        return err
+      }
+
+      return ctx.GetStub().PutState(id, assetJSON)
     }
 
-Next, we'll validate the function name as being either ``set`` or ``get``, and
-invoke those chaincode application functions, returning an appropriate
-response via the ``shim.Success`` or ``shim.Error`` functions that will
-serialize the response into a gRPC protobuf message.
+Now that we have populated the ledger with some initial assets and created an asset,
+let's write a function ``ReadAsset`` that allows us to read an asset from the ledger.
 
 .. code:: go
 
-    // Invoke is called per transaction on the chaincode. Each transaction is
-    // either a 'get' or a 'set' on the asset created by Init function. The Set
-    // method may create a new asset by specifying a new key-value pair.
-    func (t *SimpleAsset) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
-    	// Extract the function and args from the transaction proposal
-    	fn, args := stub.GetFunctionAndParameters()
-
-    	var result string
-    	var err error
-    	if fn == "set" {
-    		result, err = set(stub, args)
-    	} else {
-    		result, err = get(stub, args)
-    	}
-    	if err != nil {
-    		return shim.Error(err.Error())
-    	}
-
-    	// Return the result as success payload
-    	return shim.Success([]byte(result))
+  // ReadAsset returns the asset stored in the world state with given id.
+  func (s *SmartContract) ReadAsset(ctx contractapi.TransactionContextInterface, id string) (*Asset, error) {
+    assetJSON, err := ctx.GetStub().GetState(id)
+    if err != nil {
+      return nil, fmt.Errorf("failed to read from world state: %v", err)
+    }
+    if assetJSON == nil {
+      return nil, fmt.Errorf("the asset %s does not exist", id)
     }
 
-Implementing the Chaincode Application
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    var asset Asset
+    err = json.Unmarshal(assetJSON, &asset)
+    if err != nil {
+      return nil, err
+    }
 
-As noted, our chaincode application implements two functions that can be
-invoked via the ``Invoke`` function. Let's implement those functions now.
-Note that as we mentioned above, to access the ledger's state, we will leverage
-the `ChaincodeStubInterface.PutState <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStub.PutState>`_
-and `ChaincodeStubInterface.GetState <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#ChaincodeStub.GetState>`_
-functions of the chaincode shim API.
+    return &asset, nil
+  }
+
+Now that we have assets on our ledger we can interact with, let's write a chaincode function
+``UpdateAsset`` that allows us to update attributes of the asset that we are allowed to change.
 
 .. code:: go
 
-    // Set stores the asset (both key and value) on the ledger. If the key exists,
-    // it will override the value with the new one
-    func set(stub shim.ChaincodeStubInterface, args []string) (string, error) {
-    	if len(args) != 2 {
-    		return "", fmt.Errorf("Incorrect arguments. Expecting a key and a value")
-    	}
-
-    	err := stub.PutState(args[0], []byte(args[1]))
-    	if err != nil {
-    		return "", fmt.Errorf("Failed to set asset: %s", args[0])
-    	}
-    	return args[1], nil
+  // UpdateAsset updates an existing asset in the world state with provided parameters.
+  func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface, id string, color string, size int, owner string, appraisedValue int) error {
+    exists, err := s.AssetExists(ctx, id)
+    if err != nil {
+      return err
+    }
+    if !exists {
+      return fmt.Errorf("the asset %s does not exist", id)
     }
 
-    // Get returns the value of the specified asset key
-    func get(stub shim.ChaincodeStubInterface, args []string) (string, error) {
-    	if len(args) != 1 {
-    		return "", fmt.Errorf("Incorrect arguments. Expecting a key")
-    	}
-
-    	value, err := stub.GetState(args[0])
-    	if err != nil {
-    		return "", fmt.Errorf("Failed to get asset: %s with error: %s", args[0], err)
-    	}
-    	if value == nil {
-    		return "", fmt.Errorf("Asset not found: %s", args[0])
-    	}
-    	return string(value), nil
+    // overwriting original asset with new asset
+    asset := Asset{
+      ID:             id,
+      Color:          color,
+      Size:           size,
+      Owner:          owner,
+      AppraisedValue: appraisedValue,
     }
+    assetJSON, err := json.Marshal(asset)
+    if err != nil {
+      return err
+    }
+
+    return ctx.GetStub().PutState(id, assetJSON)
+  }
+
+There may be cases where we need the ability to delete an asset from the ledger,
+so let's write a ``DeleteAsset`` function to handle that requirement.
+
+.. code:: go
+
+  // DeleteAsset deletes an given asset from the world state.
+  func (s *SmartContract) DeleteAsset(ctx contractapi.TransactionContextInterface, id string) error {
+    exists, err := s.AssetExists(ctx, id)
+    if err != nil {
+      return err
+    }
+    if !exists {
+      return fmt.Errorf("the asset %s does not exist", id)
+    }
+
+    return ctx.GetStub().DelState(id)
+  }
+
+
+We said earlier that is was a good idea to check to see if an asset exists before
+taking an action on it, so let's write a function called ``AssetExists`` to implement that requirement.
+
+.. code:: go
+
+  // AssetExists returns true when asset with given ID exists in world state
+  func (s *SmartContract) AssetExists(ctx contractapi.TransactionContextInterface, id string) (bool, error) {
+    assetJSON, err := ctx.GetStub().GetState(id)
+    if err != nil {
+      return false, fmt.Errorf("failed to read from world state: %v", err)
+    }
+
+    return assetJSON != nil, nil
+  }
+
+Next, we'll write a function we'll call ``TransferAsset`` that enables the transfer of an asset from one owner to another.
+
+.. code:: go
+
+  // TransferAsset updates the owner field of asset with given id in world state.
+  func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterface, id string, newOwner string) error {
+    asset, err := s.ReadAsset(ctx, id)
+    if err != nil {
+      return err
+    }
+
+    asset.Owner = newOwner
+    assetJSON, err := json.Marshal(asset)
+    if err != nil {
+      return err
+    }
+
+    return ctx.GetStub().PutState(id, assetJSON)
+  }
+
+Let's write a function we'll call ``GetAllAssets`` that enables the querying of the ledger to
+return all of the assets on the ledger.
+
+.. code:: go
+
+  // GetAllAssets returns all assets found in world state
+  func (s *SmartContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]*Asset, error) {
+    // range query with empty string for startKey and endKey does an
+    // open-ended query of all assets in the chaincode namespace.
+    resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
+    if err != nil {
+      return nil, err
+    }
+    defer resultsIterator.Close()
+
+    var assets []*Asset
+    for resultsIterator.HasNext() {
+      queryResponse, err := resultsIterator.Next()
+      if err != nil {
+        return nil, err
+      }
+
+      var asset Asset
+      err = json.Unmarshal(queryResponse.Value, &asset)
+      if err != nil {
+        return nil, err
+      }
+      assets = append(assets, &asset)
+    }
+
+    return assets, nil
+  }
 
 .. _Chaincode Sample:
+
+
+.. Note:: The full chaincode sample below is presented as a way to
+          to keep this tutorial as clear and straightforward as possible. In a
+          real-world implementation, it is likely that packages will be segmented
+          where a ``main`` package imports the chaincode package to allow for easy unit testing.
+          To see what this looks like, see the asset-transfer `Go chaincode <https://github.com/hyperledger/fabric-samples/tree/main/asset-transfer-basic/chaincode-go>`__
+          in fabric-samples. If you look at ``assetTransfer.go``, you will see that
+          it contains ``package main`` and imports ``package chaincode`` defined in ``smartcontract.go`` and
+          located at ``fabric-samples/asset-transfer-basic/chaincode-go/chaincode/``.
+
+
 
 Pulling it All Together
 ^^^^^^^^^^^^^^^^^^^^^^^
 
 Finally, we need to add the ``main`` function, which will call the
-`shim.Start <https://godoc.org/github.com/hyperledger/fabric-chaincode-go/shim#Start>`_
+`ContractChaincode.Start <https://godoc.org/github.com/hyperledger/fabric-contract-api-go/contractapi#ContractChaincode.Start>`_
 function. Here's the whole chaincode program source.
 
 .. code:: go
 
-    package main
+  package main
 
-    import (
-    	"fmt"
+  import (
+    "encoding/json"
+    "fmt"
+    "log"
 
-    	"github.com/hyperledger/fabric-chaincode-go/shim"
-    	"github.com/hyperledger/fabric-protos-go/peer"
-    )
+    "github.com/hyperledger/fabric-contract-api-go/contractapi"
+  )
 
-    // SimpleAsset implements a simple chaincode to manage an asset
-    type SimpleAsset struct {
+  // SmartContract provides functions for managing an Asset
+  type SmartContract struct {
+    contractapi.Contract
+  }
+
+  // Asset describes basic details of what makes up a simple asset
+  type Asset struct {
+    ID             string `json:"ID"`
+    Color          string `json:"color"`
+    Size           int    `json:"size"`
+    Owner          string `json:"owner"`
+    AppraisedValue int    `json:"appraisedValue"`
+  }
+
+  // InitLedger adds a base set of assets to the ledger
+  func (s *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
+    assets := []Asset{
+      {ID: "asset1", Color: "blue", Size: 5, Owner: "Tomoko", AppraisedValue: 300},
+      {ID: "asset2", Color: "red", Size: 5, Owner: "Brad", AppraisedValue: 400},
+      {ID: "asset3", Color: "green", Size: 10, Owner: "Jin Soo", AppraisedValue: 500},
+      {ID: "asset4", Color: "yellow", Size: 10, Owner: "Max", AppraisedValue: 600},
+      {ID: "asset5", Color: "black", Size: 15, Owner: "Adriana", AppraisedValue: 700},
+      {ID: "asset6", Color: "white", Size: 15, Owner: "Michel", AppraisedValue: 800},
     }
 
-    // Init is called during chaincode instantiation to initialize any
-    // data. Note that chaincode upgrade also calls this function to reset
-    // or to migrate data.
-    func (t *SimpleAsset) Init(stub shim.ChaincodeStubInterface) peer.Response {
-    	// Get the args from the transaction proposal
-    	args := stub.GetStringArgs()
-    	if len(args) != 2 {
-    		return shim.Error("Incorrect arguments. Expecting a key and a value")
-    	}
+    for _, asset := range assets {
+      assetJSON, err := json.Marshal(asset)
+      if err != nil {
+        return err
+      }
 
-    	// Set up any variables or assets here by calling stub.PutState()
-
-    	// We store the key and the value on the ledger
-    	err := stub.PutState(args[0], []byte(args[1]))
-    	if err != nil {
-    		return shim.Error(fmt.Sprintf("Failed to create asset: %s", args[0]))
-    	}
-    	return shim.Success(nil)
+      err = ctx.GetStub().PutState(asset.ID, assetJSON)
+      if err != nil {
+        return fmt.Errorf("failed to put to world state. %v", err)
+      }
     }
 
-    // Invoke is called per transaction on the chaincode. Each transaction is
-    // either a 'get' or a 'set' on the asset created by Init function. The Set
-    // method may create a new asset by specifying a new key-value pair.
-    func (t *SimpleAsset) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
-    	// Extract the function and args from the transaction proposal
-    	fn, args := stub.GetFunctionAndParameters()
+    return nil
+  }
 
-    	var result string
-    	var err error
-    	if fn == "set" {
-    		result, err = set(stub, args)
-    	} else { // assume 'get' even if fn is nil
-    		result, err = get(stub, args)
-    	}
-    	if err != nil {
-    		return shim.Error(err.Error())
-    	}
-
-    	// Return the result as success payload
-    	return shim.Success([]byte(result))
+  // CreateAsset issues a new asset to the world state with given details.
+  func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface, id string, color string, size int, owner string, appraisedValue int) error {
+    exists, err := s.AssetExists(ctx, id)
+    if err != nil {
+      return err
+    }
+    if exists {
+      return fmt.Errorf("the asset %s already exists", id)
     }
 
-    // Set stores the asset (both key and value) on the ledger. If the key exists,
-    // it will override the value with the new one
-    func set(stub shim.ChaincodeStubInterface, args []string) (string, error) {
-    	if len(args) != 2 {
-    		return "", fmt.Errorf("Incorrect arguments. Expecting a key and a value")
-    	}
-
-    	err := stub.PutState(args[0], []byte(args[1]))
-    	if err != nil {
-    		return "", fmt.Errorf("Failed to set asset: %s", args[0])
-    	}
-    	return args[1], nil
+    asset := Asset{
+      ID:             id,
+      Color:          color,
+      Size:           size,
+      Owner:          owner,
+      AppraisedValue: appraisedValue,
+    }
+    assetJSON, err := json.Marshal(asset)
+    if err != nil {
+      return err
     }
 
-    // Get returns the value of the specified asset key
-    func get(stub shim.ChaincodeStubInterface, args []string) (string, error) {
-    	if len(args) != 1 {
-    		return "", fmt.Errorf("Incorrect arguments. Expecting a key")
-    	}
+    return ctx.GetStub().PutState(id, assetJSON)
+  }
 
-    	value, err := stub.GetState(args[0])
-    	if err != nil {
-    		return "", fmt.Errorf("Failed to get asset: %s with error: %s", args[0], err)
-    	}
-    	if value == nil {
-    		return "", fmt.Errorf("Asset not found: %s", args[0])
-    	}
-    	return string(value), nil
+  // ReadAsset returns the asset stored in the world state with given id.
+  func (s *SmartContract) ReadAsset(ctx contractapi.TransactionContextInterface, id string) (*Asset, error) {
+    assetJSON, err := ctx.GetStub().GetState(id)
+    if err != nil {
+      return nil, fmt.Errorf("failed to read from world state: %v", err)
+    }
+    if assetJSON == nil {
+      return nil, fmt.Errorf("the asset %s does not exist", id)
     }
 
-    // main function starts up the chaincode in the container during instantiate
-    func main() {
-    	if err := shim.Start(new(SimpleAsset)); err != nil {
-    		fmt.Printf("Error starting SimpleAsset chaincode: %s", err)
-    	}
+    var asset Asset
+    err = json.Unmarshal(assetJSON, &asset)
+    if err != nil {
+      return nil, err
     }
 
-Building Chaincode
-^^^^^^^^^^^^^^^^^^
+    return &asset, nil
+  }
 
-Now let's compile your chaincode.
+  // UpdateAsset updates an existing asset in the world state with provided parameters.
+  func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface, id string, color string, size int, owner string, appraisedValue int) error {
+    exists, err := s.AssetExists(ctx, id)
+    if err != nil {
+      return err
+    }
+    if !exists {
+      return fmt.Errorf("the asset %s does not exist", id)
+    }
 
-.. code:: bash
+    // overwriting original asset with new asset
+    asset := Asset{
+      ID:             id,
+      Color:          color,
+      Size:           size,
+      Owner:          owner,
+      AppraisedValue: appraisedValue,
+    }
+    assetJSON, err := json.Marshal(asset)
+    if err != nil {
+      return err
+    }
 
-  go get -u github.com/hyperledger/fabric-chaincode-go
-  go build
+    return ctx.GetStub().PutState(id, assetJSON)
+  }
 
-Assuming there are no errors, now we can proceed to the next step, testing
-your chaincode.
+  // DeleteAsset deletes an given asset from the world state.
+  func (s *SmartContract) DeleteAsset(ctx contractapi.TransactionContextInterface, id string) error {
+    exists, err := s.AssetExists(ctx, id)
+    if err != nil {
+      return err
+    }
+    if !exists {
+      return fmt.Errorf("the asset %s does not exist", id)
+    }
 
-Testing Using dev mode
-^^^^^^^^^^^^^^^^^^^^^^
+    return ctx.GetStub().DelState(id)
+  }
 
-Normally chaincodes are started and maintained by peer. However in “dev
-mode", chaincode is built and started by the user. This mode is useful
-during chaincode development phase for rapid code/build/run/debug cycle
-turnaround.
+  // AssetExists returns true when asset with given ID exists in world state
+  func (s *SmartContract) AssetExists(ctx contractapi.TransactionContextInterface, id string) (bool, error) {
+    assetJSON, err := ctx.GetStub().GetState(id)
+    if err != nil {
+      return false, fmt.Errorf("failed to read from world state: %v", err)
+    }
 
-We start "dev mode" by leveraging pre-generated orderer and channel artifacts for
-a sample dev network.  As such, the user can immediately jump into the process
-of compiling chaincode and driving calls.
+    return assetJSON != nil, nil
+  }
 
-Install Hyperledger Fabric Samples
-----------------------------------
+  // TransferAsset updates the owner field of asset with given id in world state.
+  func (s *SmartContract) TransferAsset(ctx contractapi.TransactionContextInterface, id string, newOwner string) error {
+    asset, err := s.ReadAsset(ctx, id)
+    if err != nil {
+      return err
+    }
 
-If you haven't already done so, please :doc:`install`.
+    asset.Owner = newOwner
+    assetJSON, err := json.Marshal(asset)
+    if err != nil {
+      return err
+    }
 
-Navigate to the ``chaincode-docker-devmode`` directory of the ``fabric-samples``
-clone:
+    return ctx.GetStub().PutState(id, assetJSON)
+  }
 
-.. code:: bash
+  // GetAllAssets returns all assets found in world state
+  func (s *SmartContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]*Asset, error) {
+    // range query with empty string for startKey and endKey does an
+    // open-ended query of all assets in the chaincode namespace.
+    resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
+    if err != nil {
+      return nil, err
+    }
+    defer resultsIterator.Close()
 
-  cd chaincode-docker-devmode
+    var assets []*Asset
+    for resultsIterator.HasNext() {
+      queryResponse, err := resultsIterator.Next()
+      if err != nil {
+        return nil, err
+      }
 
-Now open three terminals and navigate to your ``chaincode-docker-devmode``
-directory in each.
+      var asset Asset
+      err = json.Unmarshal(queryResponse.Value, &asset)
+      if err != nil {
+        return nil, err
+      }
+      assets = append(assets, &asset)
+    }
 
-Terminal 1 - Start the network
-------------------------------
+    return assets, nil
+  }
 
-.. code:: bash
+  func main() {
+    assetChaincode, err := contractapi.NewChaincode(&SmartContract{})
+    if err != nil {
+      log.Panicf("Error creating asset-transfer-basic chaincode: %v", err)
+    }
 
-    docker-compose -f docker-compose-simple.yaml up
-
-The above starts the network with the ``SingleSampleMSPSolo`` orderer profile and
-launches the peer in "dev mode".  It also launches two additional containers -
-one for the chaincode environment and a CLI to interact with the chaincode.  The
-commands for create and join channel are embedded in the CLI container, so we
-can jump immediately to the chaincode calls.
-
-- Note: the peer is not using TLS because the dev mode does not work with TLS.
-
-Terminal 2 - Build & start the chaincode
-----------------------------------------
-
-.. code:: bash
-
-  docker exec -it chaincode sh
-
-You should see the following:
-
-.. code:: sh
-
-  /opt/gopath/src/chaincode $
-
-Now, compile your chaincode:
-
-.. code:: sh
-
-  cd sacc
-  go build
-
-Now run the chaincode:
-
-.. code:: sh
-
-  CORE_CHAINCODE_ID_NAME=mycc:0 CORE_PEER_TLS_ENABLED=false ./sacc -peer.address peer:7052
-
-The chaincode is started with peer and chaincode logs indicating successful registration with the peer.
-Note that at this stage the chaincode is not associated with any channel. This is done in subsequent steps
-using the ``instantiate`` command.
-
-Terminal 3 - Use the chaincode
-------------------------------
-
-Even though you are in ``--peer-chaincodedev`` mode, you still have to install the
-chaincode so the life-cycle system chaincode can go through its checks normally.
-This requirement may be removed in future when in ``--peer-chaincodedev`` mode.
-
-We'll leverage the CLI container to drive these calls.
-
-.. code:: bash
-
-  docker exec -it cli bash
-
-.. code:: bash
-
-  peer chaincode install -p chaincodedev/chaincode/sacc -n mycc -v 0
-  peer chaincode instantiate -n mycc -v 0 -c '{"Args":["a","10"]}' -C myc
-
-Now issue an invoke to change the value of "a" to "20".
-
-.. code:: bash
-
-  peer chaincode invoke -n mycc -c '{"Args":["set", "a", "20"]}' -C myc
-
-Finally, query ``a``.  We should see a value of ``20``.
-
-.. code:: bash
-
-  peer chaincode query -n mycc -c '{"Args":["query","a"]}' -C myc
-
-Testing new chaincode
----------------------
-
-By default, we mount only ``sacc``.  However, you can easily test different
-chaincodes by adding them to the ``chaincode`` subdirectory and relaunching
-your network.  At this point they will be accessible in your ``chaincode`` container.
+    if err := assetChaincode.Start(); err != nil {
+      log.Panicf("Error starting asset-transfer-basic chaincode: %v", err)
+    }
+  }
 
 Chaincode access control
 ------------------------
 
 Chaincode can utilize the client (submitter) certificate for access
-control decisions by calling the GetCreator() function. Additionally
-the Go shim provides extension APIs that extract client identity
+control decisions with ``ctx.GetStub().GetCreator()``. Additionally
+the Fabric Contract API provides extension APIs that extract client identity
 from the submitter's certificate that can be used for access control decisions,
 whether that is based on client identity itself, or the org identity,
 or on a client identity attribute.
@@ -528,37 +570,80 @@ to make updates to the key/value in the future. The client identity
 library extension APIs can be used within chaincode to retrieve this
 submitter information to make such access control decisions.
 
-See the `client identity (CID) library documentation <https://github.com/hyperledger/fabric-chaincode-go/blob/master/pkg/cid/README.md>`_
-for more details.
-
-To add the client identity shim extension to your chaincode as a dependency, see :ref:`vendoring`.
 
 .. _vendoring:
 
 Managing external dependencies for chaincode written in Go
 ----------------------------------------------------------
-Your Go chaincode requires packages (like the chaincode shim) that are not part
-of the Go standard library. These packages must be included in your chaincode
-package.
-
-There are `many tools available <https://github.com/golang/go/wiki/PackageManagementTools>`__
-for managing (or "vendoring") these dependencies.  The following demonstrates how to use
-``govendor``:
+Your Go chaincode depends on Go packages (like the chaincode shim) that are not
+part of the standard library. The source to these packages must be included in
+your chaincode package when it is installed to a peer. If you have structured
+your chaincode as a module, the easiest way to do this is to "vendor" the
+dependencies with ``go mod vendor`` before packaging your chaincode.
 
 .. code:: bash
 
-  govendor init
-  govendor add +external  // Add all external package, or
-  govendor add github.com/external/pkg // Add specific external package
+  go mod tidy
+  go mod vendor
 
-This imports the external dependencies into a local ``vendor`` directory.
-If you are vendoring the Fabric shim or shim extensions, clone the
-Fabric repository to your $GOPATH/src/github.com/hyperledger directory,
-before executing the govendor commands.
+This places the external dependencies for your chaincode into a local ``vendor``
+directory.
 
 Once dependencies are vendored in your chaincode directory, ``peer chaincode package``
 and ``peer chaincode install`` operations will then include code associated with the
 dependencies into the chaincode package.
+
+JSON determinism
+----------------
+Being able to predictably handle data formats is critical, and also the ability to search the data held within the blockchain.
+
+Technical Problem
+^^^^^^^^^^^^^^^^^
+The format of the data that is stored in Fabric is at the discretion of the user. 
+The lowest level API accepts a byte array and stores that - what this represents is not a concern to Fabric.
+The important thing is when simulating transactions, given the same inputs chaincode gives the same byte array.
+Otherwise, the endorsements may not all match and the transaction will either not be submitted or will be invalidated.
+
+JSON is often used as the data format to store data on the ledger, and is required if using CouchDB queries.
+
+JSON though is not a deterministic data format - the order of elements can change,
+whilst still representing the same data semantically. The challenge, therefore, is to be able to generate a consistent set of JSON.
+
+A solution
+^^^^^^^^^^
+Generate a consistent set of ``JSON`` across multiple languages.
+Each language have different features and libraries that you can use to convert an object to JSON.
+The best approach to achieve determinism across different languages is to choose a canonical way as a common guideline to format JSON.
+In order to get a consistent hash across languages you can format JSON in alphabetic order.
+
+Golang
+^^^^^^
+In Golang the ``encoding/json`` package is utilized to serialise a Struct Object into JSON.
+More specifically the ``Marshal`` function is used, the latter marshals maps in sorted key order and keeps structs in the order that the fields are declared.
+Since structs are marshaled in field declaration order, follow alphabetic order when defining a new structure.
+
+Node.js
+^^^^^^^
+In Javascript, when serialising object into JSON, the function ``JSON.stringify()`` is commonly used.
+However, to achieve consistent results, a deterministic version of JSON.stringify() is needed; in this way it is possible to get a consistent hash from stringified results.
+``json-stringify-deterministic`` is a good library to do so and can be used combined with ``sort-keys-recursive`` to attain alphabetic order too. 
+`Here <https://www.npmjs.com/package/json-stringify-deterministic>`_ for a more in-depth tutorial.
+
+Java
+^^^^
+Java provides several libraries to serialize an object into a JSON string. However not all of them provide consistency and ordering.
+The ``Gson`` library, for example, does not provide any consistency and should therefore be avoided for this application. On the other hand,
+the ``Genson`` library is a good fit for our purpose as it produces consistent JSON in alphabetic oreder.
+
+You can find a good exemplification of this practise on the `asset-transfer-basic <https://github.com/hyperledger/fabric-samples/tree/main/asset-transfer-basic>`_ chaincodes.
+
+.. Note:: 
+        This is only one of the many approaches which we think can be effective.
+        When serialising you can utilise various methods to achieve consistency; nevertheless,
+        considering the different characteristics of the programming languages used in Fabric,
+        the alphabetic approach represents an easy and efficient solution to the problem.
+        In conclusion, feel free to employ a different method if it best suites your needs.
+        P.S. Don’t forget to let us know in the comments if you used a different approach.
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/

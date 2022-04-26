@@ -42,7 +42,6 @@ func (exp *expirationRejectRule) Apply(message *common.Envelope) error {
 		return nil
 	}
 	signedData, err := protoutil.EnvelopeAsSignedData(message)
-
 	if err != nil {
 		return errors.Errorf("could not convert message to signedData: %s", err)
 	}
@@ -51,5 +50,5 @@ func (exp *expirationRejectRule) Apply(message *common.Envelope) error {
 	if expirationTime.IsZero() || time.Now().Before(expirationTime) {
 		return nil
 	}
-	return errors.New("identity expired")
+	return errors.New("broadcast client identity expired")
 }

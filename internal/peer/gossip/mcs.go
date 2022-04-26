@@ -20,7 +20,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/msp"
-	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -44,7 +43,7 @@ type Hasher interface {
 type MSPMessageCryptoService struct {
 	channelPolicyManagerGetter policies.ChannelPolicyManagerGetter
 	localSigner                identity.SignerSerializer
-	deserializer               mgmt.DeserializersManager
+	deserializer               DeserializersManager
 	hasher                     Hasher
 }
 
@@ -57,7 +56,7 @@ type MSPMessageCryptoService struct {
 func NewMCS(
 	channelPolicyManagerGetter policies.ChannelPolicyManagerGetter,
 	localSigner identity.SignerSerializer,
-	deserializer mgmt.DeserializersManager,
+	deserializer DeserializersManager,
 	hasher Hasher,
 ) *MSPMessageCryptoService {
 	return &MSPMessageCryptoService{
@@ -132,7 +131,7 @@ func (s *MSPMessageCryptoService) VerifyBlock(chainID common.ChannelID, seqNum u
 	}
 
 	// - Extract channelID and compare with chainID
-	channelID, err := protoutil.GetChainIDFromBlock(block)
+	channelID, err := protoutil.GetChannelIDFromBlock(block)
 	if err != nil {
 		return fmt.Errorf("Failed getting channel id from block with id [%d] on channel [%s]: [%s]", block.Header.Number, chainID, err)
 	}
@@ -259,7 +258,6 @@ func (s *MSPMessageCryptoService) Expiration(peerIdentity api.PeerIdentityType) 
 		return time.Time{}, errors.Wrap(err, "Unable to extract msp.Identity from peer Identity")
 	}
 	return id.ExpiresAt(), nil
-
 }
 
 func (s *MSPMessageCryptoService) getValidatedIdentity(peerIdentity api.PeerIdentityType) (msp.Identity, common.ChannelID, error) {

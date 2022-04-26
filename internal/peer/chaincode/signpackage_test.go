@@ -17,10 +17,10 @@ import (
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/sw"
 	"github.com/hyperledger/fabric/internal/peer/common"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-//helper to sign an existing package
+// helper to sign an existing package
 func signExistingPackage(env *pcommon.Envelope, infile, outfile string, cryptoProvider bccsp.BCCSP) error {
 	signer, err := common.GetDefaultSigner()
 	if err != nil {
@@ -49,7 +49,7 @@ func TestSignExistingPackage(t *testing.T) {
 	defer os.RemoveAll(pdir)
 
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ccpackfile := pdir + "/ccpack.file"
 	err = createSignedCDSPackage(t, []string{"-n", "somecc", "-p", "some/go/package", "-v", "0", "-s", "-S", ccpackfile}, true)
@@ -106,7 +106,7 @@ func TestFailSignUnsignedPackage(t *testing.T) {
 	pdir := newTempDir()
 	defer os.RemoveAll(pdir)
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ccpackfile := pdir + "/ccpack.file"
 	// don't sign it ... no "-S"

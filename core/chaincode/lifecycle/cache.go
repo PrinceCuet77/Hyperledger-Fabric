@@ -15,6 +15,7 @@ import (
 	lb "github.com/hyperledger/fabric-protos-go/peer/lifecycle"
 	"github.com/hyperledger/fabric/common/chaincode"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/core/chaincode/implicitcollection"
 	"github.com/hyperledger/fabric/core/chaincode/persistence"
 	"github.com/hyperledger/fabric/core/container/externalbuilder"
 	"github.com/hyperledger/fabric/core/ledger"
@@ -179,6 +180,11 @@ func (c *Cache) InitializeLocalChaincodes() error {
 	return nil
 }
 
+// Name returns the name of the listener
+func (c *Cache) Name() string {
+	return "lifecycle cache listener"
+}
+
 // Initialize will populate the set of currently committed chaincode definitions
 // for a channel into the cache.  Note, it this looks like a bit of a DRY violation
 // with respect to 'Update', but, the error handling is quite different and attempting
@@ -280,13 +286,12 @@ func (c *Cache) HandleStateUpdates(trigger *ledger.StateUpdateTrigger) error {
 	// if the channel cache does not yet exist, there are no interesting hashes, so skip
 	if ok {
 		for collection, privateUpdates := range updates.CollHashUpdates {
-			matches := ImplicitCollectionMatcher.FindStringSubmatch(collection)
-			if len(matches) != 2 {
-				// This is not an implicit collection
+			isImplicitCollection, mspID := implicitcollection.MspIDIfImplicitCollection(collection)
+			if !isImplicitCollection {
 				continue
 			}
 
-			if matches[1] != c.MyOrgMSPID {
+			if mspID != c.MyOrgMSPID {
 				// This is not our implicit collection
 				continue
 			}
@@ -321,7 +326,7 @@ func (c *Cache) StateCommitDone(channelName string) {
 	// between HandleStateUpdate and StateCommitDone, it's possible (in fact likely)
 	// that a chaincode invocation will acquire a read-lock on the world state, then attempt
 	// to get chaincode info from the cache, resulting in a deadlock.  So, we choose
-	// potential inconsistenty between the cache and the world state which the callers
+	// potential inconsistency between the cache and the world state which the callers
 	// must detect and cope with as necessary.  Note, the cache will always be _at least_
 	// as current as the committed state.
 	c.eventBroker.ApproveOrDefineCommitted(channelName)
@@ -435,7 +440,7 @@ func (c *Cache) update(initializing bool, channelID string, dirtyChaincodes map[
 
 	orgState := &PrivateQueryExecutorShim{
 		Namespace:  LifecycleNamespace,
-		Collection: ImplicitCollectionNameForOrg(c.MyOrgMSPID),
+		Collection: implicitcollection.NameForOrg(c.MyOrgMSPID),
 		State:      qe,
 	}
 
@@ -483,11 +488,13 @@ func (c *Cache) update(initializing bool, channelID string, dirtyChaincodes map[
 			// name on this channel
 			for _, lc := range c.localChaincodes {
 				if ref, ok := lc.References[channelID][name]; ok {
-					if ref.InstallInfo == nil || localChaincode.Info == nil {
+					if ref.InstallInfo == nil {
 						continue
 					}
-					if ref.InstallInfo.PackageID == localChaincode.Info.PackageID {
-						continue
+					if localChaincode.Info != nil {
+						if ref.InstallInfo.PackageID == localChaincode.Info.PackageID {
+							continue
+						}
 					}
 
 					// remove existing local chaincode reference, which referred to a
@@ -581,8 +588,26 @@ func (c *Cache) update(initializing bool, channelID string, dirtyChaincodes map[
 }
 
 // RegisterListener registers an event listener for receiving an event when a chaincode becomes invokable
-func (c *Cache) RegisterListener(channelID string, listener ledger.ChaincodeLifecycleEventListener) {
-	c.eventBroker.RegisterListener(channelID, listener)
+func (c *Cache) RegisterListener(
+	channelID string,
+	listener ledger.ChaincodeLifecycleEventListener,
+	needsExistingChaincodesDefinitions bool,
+) error {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	channelChaincodes, ok := c.definedChaincodes[channelID]
+	if !ok {
+		return errors.Errorf("unknown channel '%s'", channelID)
+	}
+
+	if needsExistingChaincodesDefinitions {
+		c.eventBroker.RegisterListener(channelID, listener, channelChaincodes.Chaincodes)
+	} else {
+		c.eventBroker.RegisterListener(channelID, listener, nil)
+	}
+
+	return nil
 }
 
 func (c *Cache) InitializeMetadata(channel string) {

@@ -8,7 +8,6 @@ package deliverservice
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"sync"
@@ -17,7 +16,7 @@ import (
 	"github.com/hyperledger/fabric-protos-go/orderer"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/util"
-	"github.com/hyperledger/fabric/core/comm"
+	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider"
 	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
@@ -68,10 +67,7 @@ type Config struct {
 	OrdererSource *orderers.ConnectionSource
 	// Signer is the identity used to sign requests.
 	Signer identity.SignerSerializer
-	// GRPC Client
-	DeliverGRPCClient *comm.GRPCClient
-	// Configuration values for deliver service.
-	// TODO: merge 2 Config struct
+	// DeliverServiceConfig is the configuration object.
 	DeliverServiceConfig *DeliverServiceConfig
 }
 
@@ -88,11 +84,13 @@ func NewDeliverService(conf *Config) DeliverService {
 }
 
 type DialerAdapter struct {
-	Client *comm.GRPCClient
+	ClientConfig comm.ClientConfig
 }
 
-func (da DialerAdapter) Dial(address string, certPool *x509.CertPool) (*grpc.ClientConn, error) {
-	return da.Client.NewConnection(address, comm.CertPoolOverride(certPool))
+func (da DialerAdapter) Dial(address string, rootCerts [][]byte) (*grpc.ClientConn, error) {
+	cc := da.ClientConfig
+	cc.SecOpts.ServerRootCAs = rootCerts
+	return cc.Dial(address)
 }
 
 type DeliverAdapter struct{}
@@ -126,21 +124,30 @@ func (d *deliverServiceImpl) StartDeliverForChannel(chainID string, ledgerInfo b
 		Ledger:        ledgerInfo,
 		BlockVerifier: d.conf.CryptoSvc,
 		Dialer: DialerAdapter{
-			Client: d.conf.DeliverGRPCClient,
+			ClientConfig: comm.ClientConfig{
+				DialTimeout: d.conf.DeliverServiceConfig.ConnectionTimeout,
+				KaOpts:      d.conf.DeliverServiceConfig.KeepaliveOptions,
+				SecOpts:     d.conf.DeliverServiceConfig.SecOpts,
+			},
 		},
-		Orderers:          d.conf.OrdererSource,
-		DoneC:             make(chan struct{}),
-		Signer:            d.conf.Signer,
-		DeliverStreamer:   DeliverAdapter{},
-		Logger:            flogging.MustGetLogger("peer.blocksprovider").With("channel", chainID),
-		MaxRetryDelay:     time.Duration(d.conf.DeliverServiceConfig.ReConnectBackoffThreshold),
-		MaxRetryDuration:  d.conf.DeliverServiceConfig.ReconnectTotalTimeThreshold,
-		InitialRetryDelay: 100 * time.Millisecond,
-		YieldLeadership:   !d.conf.IsStaticLeader,
+		Orderers:            d.conf.OrdererSource,
+		DoneC:               make(chan struct{}),
+		Signer:              d.conf.Signer,
+		DeliverStreamer:     DeliverAdapter{},
+		Logger:              flogging.MustGetLogger("peer.blocksprovider").With("channel", chainID),
+		MaxRetryDelay:       d.conf.DeliverServiceConfig.ReConnectBackoffThreshold,
+		MaxRetryDuration:    d.conf.DeliverServiceConfig.ReconnectTotalTimeThreshold,
+		BlockGossipDisabled: !d.conf.DeliverServiceConfig.BlockGossipEnabled,
+		InitialRetryDelay:   100 * time.Millisecond,
+		YieldLeadership:     !d.conf.IsStaticLeader,
 	}
 
-	if d.conf.DeliverGRPCClient.MutualTLSRequired() {
-		dc.TLSCertHash = util.ComputeSHA256(d.conf.DeliverGRPCClient.Certificate().Certificate[0])
+	if d.conf.DeliverServiceConfig.SecOpts.RequireClientCert {
+		cert, err := d.conf.DeliverServiceConfig.SecOpts.ClientCertificate()
+		if err != nil {
+			return fmt.Errorf("failed to access client TLS configuration: %w", err)
+		}
+		dc.TLSCertHash = util.ComputeSHA256(cert.Certificate[0])
 	}
 
 	d.blockProviders[chainID] = dc

@@ -16,7 +16,7 @@ import (
 	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/core/comm"
+	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/protoutil"
@@ -188,13 +188,14 @@ func (r *Replicator) PullChannel(channel string) error {
 	puller := r.Puller.Clone()
 	defer puller.Close()
 	puller.Channel = channel
+	puller.Logger = flogging.MustGetLogger("orderer.common.cluster.replication").With("channel", channel)
 
 	ledger, err := r.LedgerFactory.GetOrCreate(channel)
 	if err != nil {
 		r.Logger.Panicf("Failed to create a ledger for channel %s: %v", channel, err)
 	}
 
-	endpoint, latestHeight, _ := latestHeightAndEndpoint(puller)
+	endpoint, latestHeight, _ := LatestHeightAndEndpoint(puller)
 	if endpoint == "" {
 		return errors.Errorf("failed obtaining the latest block for channel %s", channel)
 	}
@@ -294,6 +295,7 @@ func (r *Replicator) channelsToPull(channels GenesisBlocks) channelPullHints {
 	for _, channel := range channels {
 		r.Logger.Info("Probing whether I should pull channel", channel.ChannelName)
 		puller := r.Puller.Clone()
+		puller.Logger = flogging.MustGetLogger("orderer.common.cluster.replication").With("channel", channel.ChannelName)
 		puller.Channel = channel.ChannelName
 		// Disable puller buffering when we check whether we are in the channel,
 		// as we only need to know about a single block.
@@ -365,7 +367,7 @@ func BlockPullerFromConfigBlock(conf PullerConfig, block *common.Block, verifier
 	}
 
 	clientConf := comm.ClientConfig{
-		Timeout: conf.Timeout,
+		DialTimeout: conf.Timeout,
 		SecOpts: comm.SecureOptions{
 			Certificate:       conf.TLSCert,
 			Key:               conf.TLSKey,
@@ -375,7 +377,7 @@ func BlockPullerFromConfigBlock(conf PullerConfig, block *common.Block, verifier
 	}
 
 	dialer := &StandardDialer{
-		Config: clientConf.Clone(),
+		Config: clientConf,
 	}
 
 	tlsCertAsDER, _ := pem.Decode(conf.TLSCert)
@@ -400,6 +402,7 @@ func BlockPullerFromConfigBlock(conf PullerConfig, block *common.Block, verifier
 		FetchTimeout:        conf.Timeout,
 		Channel:             conf.Channel,
 		Signer:              conf.Signer,
+		StopChannel:         make(chan struct{}),
 	}, nil
 }
 
@@ -468,7 +471,7 @@ func Participant(puller ChainPuller, analyzeLastConfBlock SelfMembershipPredicat
 
 // PullLastConfigBlock pulls the last configuration block, or returns an error on failure.
 func PullLastConfigBlock(puller ChainPuller) (*common.Block, error) {
-	endpoint, latestHeight, err := latestHeightAndEndpoint(puller)
+	endpoint, latestHeight, err := LatestHeightAndEndpoint(puller)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +497,7 @@ func PullLastConfigBlock(puller ChainPuller) (*common.Block, error) {
 	return lastConfigBlock, nil
 }
 
-func latestHeightAndEndpoint(puller ChainPuller) (string, uint64, error) {
+func LatestHeightAndEndpoint(puller ChainPuller) (string, uint64, error) {
 	var maxHeight uint64
 	var mostUpToDateEndpoint string
 	heightsByEndpoints, err := puller.HeightsByEndpoints()
@@ -548,7 +551,7 @@ func (ci *ChainInspector) Channels() []ChannelGenesisBlock {
 		}
 		ci.validateHashPointer(block, prevHash)
 		// Set the previous hash for the next iteration
-		prevHash = protoutil.BlockHeaderHash(block.Header)
+		prevHash = protoutil.BlockHeaderHash(block.Header) //lint:ignore SA5011 logs and panics above
 
 		channel, gb, err := ExtractGenesisBlock(ci.Logger, block)
 		if err != nil {
@@ -559,6 +562,11 @@ func (ci *ChainInspector) Channels() []ChannelGenesisBlock {
 
 		if channel == "" {
 			ci.Logger.Info("Block", seq, "doesn't contain a new channel")
+			continue
+		}
+
+		if _, exist := channels[channel]; exist {
+			ci.Logger.Warnf("Block %d attempts to create an existing channel [%s], ignore", seq, channel)
 			continue
 		}
 

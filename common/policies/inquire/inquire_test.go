@@ -12,9 +12,9 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/msp"
-	"github.com/hyperledger/fabric/common/cauthdsl"
+	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testCase struct {
@@ -29,7 +29,8 @@ func createPrincipals(orgNames ...string) []*msp.MSPPrincipal {
 	appendPrincipal := func(orgName string) {
 		principals = append(principals, &msp.MSPPrincipal{
 			PrincipalClassification: msp.MSPPrincipal_ROLE,
-			Principal:               protoutil.MarshalOrPanic(&msp.MSPRole{Role: msp.MSPRole_MEMBER, MspIdentifier: orgName})})
+			Principal:               protoutil.MarshalOrPanic(&msp.MSPRole{Role: msp.MSPRole_MEMBER, MspIdentifier: orgName}),
+		})
 	}
 	for _, org := range orgNames {
 		appendPrincipal(org)
@@ -86,8 +87,8 @@ func mspId(principal *msp.MSPPrincipal) string {
 func TestSatisfiedBy(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			p, err := cauthdsl.FromString(test.policy)
-			assert.NoError(t, err)
+			p, err := policydsl.FromString(test.policy)
+			require.NoError(t, err)
 
 			ip := NewInquireableSignaturePolicy(p)
 			satisfiedBy := ip.SatisfiedBy()
@@ -101,7 +102,7 @@ func TestSatisfiedBy(t *testing.T) {
 				actual[fmt.Sprintf("%v", principals)] = struct{}{}
 			}
 
-			assert.Equal(t, test.expected, actual)
+			require.Equal(t, test.expected, actual)
 		})
 	}
 }
@@ -111,11 +112,11 @@ func TestSatisfiedByTooManyCombinations(t *testing.T) {
 	// and we ensure we don't return so many combinations,
 	// but limit it to combinationsUpperBound.
 
-	p, err := cauthdsl.FromString("OutOf(15, 'A.member', 'B.member', 'C.member', 'D.member', 'E.member', 'F.member'," +
+	p, err := policydsl.FromString("OutOf(15, 'A.member', 'B.member', 'C.member', 'D.member', 'E.member', 'F.member'," +
 		" 'G.member', 'H.member', 'I.member', 'J.member', 'K.member', 'L.member', 'M.member', 'N.member', 'O.member', " +
 		"'P.member', 'Q.member', 'R.member', 'S.member', 'T.member', 'U.member', 'V.member', 'W.member', 'X.member', " +
 		"'Y.member', 'Z.member')")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ip := NewInquireableSignaturePolicy(p)
 	satisfiedBy := ip.SatisfiedBy()
@@ -123,7 +124,7 @@ func TestSatisfiedByTooManyCombinations(t *testing.T) {
 	actual := make(map[string]struct{})
 	for _, ps := range satisfiedBy {
 		// Every subset is of size 15, as needed by the endorsement policy.
-		assert.Len(t, ps, 15)
+		require.Len(t, ps, 15)
 		var principals []string
 		for _, principal := range ps {
 			principals = append(principals, mspId(principal))
@@ -131,5 +132,5 @@ func TestSatisfiedByTooManyCombinations(t *testing.T) {
 		actual[fmt.Sprintf("%v", principals)] = struct{}{}
 	}
 	// Total combinations are capped by the combinationsUpperBound.
-	assert.True(t, len(actual) < combinationsUpperBound)
+	require.True(t, len(actual) < combinationsUpperBound)
 }

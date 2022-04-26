@@ -35,7 +35,7 @@ generating logs.
    2018-11-01 15:32:38.357 UTC [peer] func1 -> INFO 007 Returning peer0.org1.example.com:7051
 
 An arbitrary number of loggers can be created at runtime, therefore there is
-no "master list" of loggers, and logging control constructs can not check
+no "global list" of loggers, and logging control constructs can not check
 whether logging loggers actually do or will exist.
 
 Logging specification
@@ -73,6 +73,12 @@ syntax. Examples of specifications:
     info                                        - Set default to INFO
     warning:msp,gossip=warning:chaincode=info   - Default WARNING; Override for msp, gossip, and chaincode
     chaincode=info:msp,gossip=warning:warning   - Same as above
+
+.. note:: Logging specification terms are separated by a colon. If a term does not include a specific logger, for example `info:` then it is applied as the default log level
+   across all loggers on the component. The string `info:dockercontroller,endorser,chaincode,chaincode.platform=debug` sets
+   the default log level to `INFO` for all loggers and then the `dockercontroller`, `endorser`, `chaincode`, and
+   `chaincode.platform` loggers are set to `DEBUG`. The order of the terms does not matter. In the examples above,
+   the second and third options produce the same result although the order of the terms is reversed.
 
 Logging format
 --------------
@@ -119,4 +125,3 @@ chaincode container using standard commands for your container platform.
 
 .. Licensed under Creative Commons Attribution 4.0 International License
    https://creativecommons.org/licenses/by/4.0/
-

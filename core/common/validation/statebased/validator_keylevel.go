@@ -9,6 +9,7 @@ package statebased
 import (
 	"sync"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/peer"
 	commonerrors "github.com/hyperledger/fabric/common/errors"
@@ -52,7 +53,6 @@ func (p *baseEvaluator) checkSBAndCCEP(cc, coll, key string, blockNum, txNum uin
 		//    when performing its side of the validation.
 		case *ledger.CollConfigNotDefinedError, *ledger.InvalidCollNameError:
 			logger.Warningf(errors.WithMessage(err, "skipping key-level validation").Error())
-			err = nil
 		// 3) any other type of error should return an execution failure which will
 		//    lead to halting the processing on this channel. Note that any non-categorized
 		//    deterministic error would be caught by the default and would lead to
@@ -255,7 +255,8 @@ func (klv *KeyLevelValidator) Validate(cc string, blockNum, txNum uint64, rwsetB
 			// set the identity that signs the message: it's the endorser
 			Identity: endorsement.Endorser,
 			// set the signature
-			Signature: endorsement.Signature})
+			Signature: endorsement.Signature,
+		})
 	}
 
 	// construct the policy checker object
@@ -268,7 +269,16 @@ func (klv *KeyLevelValidator) Validate(cc string, blockNum, txNum uint64, rwsetB
 	}
 
 	// return the decision of the policy evaluator
-	return policyEvaluator.Evaluate(blockNum, txNum, rwset.NsRwSets, cc, signatureSet)
+	err := policyEvaluator.Evaluate(blockNum, txNum, rwset.NsRwSets, cc, signatureSet)
+	if err != nil {
+		// If endorsement policy check fails, log the endorsement policy and endorser identities.
+		// No need to handle Unmarshal() errors since it will simply result in endorsementPolicy being empty in the log message.
+		endorsementPolicy := &peer.ApplicationPolicy{}
+		proto.Unmarshal(ccEP, endorsementPolicy)
+		logger.Warnw("Endorsment policy failure", "error", err, "chaincode", cc, "endorsementPolicy", endorsementPolicy, "endorsingIdentities", protoutil.LogMessageForSerializedIdentities(signatureSet))
+
+	}
+	return err
 }
 
 // PostValidate implements the function of the StateBasedValidator interface

@@ -19,8 +19,9 @@ modularity and versatility for a broad set of industry use cases.
    whatsnew
    key_concepts
    getting_started
-   developapps/developing_applications
+   getting_started_run_fabric
    tutorials
+   deployment_guide_overview
    ops_guide
    upgrade
    command_ref

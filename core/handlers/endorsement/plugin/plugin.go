@@ -11,8 +11,8 @@ import (
 	"fmt"
 
 	"github.com/hyperledger/fabric-protos-go/peer"
-	. "github.com/hyperledger/fabric/core/handlers/endorsement/api"
-	. "github.com/hyperledger/fabric/core/handlers/endorsement/api/identities"
+	endorsement "github.com/hyperledger/fabric/core/handlers/endorsement/api"
+	identities "github.com/hyperledger/fabric/core/handlers/endorsement/api/identities"
 )
 
 // To build the plugin,
@@ -21,17 +21,16 @@ import (
 
 // DefaultEndorsementFactory returns an endorsement plugin factory which returns plugins
 // that behave as the default endorsement system chaincode
-type DefaultEndorsementFactory struct {
-}
+type DefaultEndorsementFactory struct{}
 
 // New returns an endorsement plugin that behaves as the default endorsement system chaincode
-func (*DefaultEndorsementFactory) New() Plugin {
+func (*DefaultEndorsementFactory) New() endorsement.Plugin {
 	return &DefaultEndorsement{}
 }
 
 // DefaultEndorsement is an endorsement plugin that behaves as the default endorsement system chaincode
 type DefaultEndorsement struct {
-	SigningIdentityFetcher
+	identities.SigningIdentityFetcher
 }
 
 // Endorse signs the given payload(ProposalResponsePayload bytes), and optionally mutates it.
@@ -42,27 +41,27 @@ type DefaultEndorsement struct {
 func (e *DefaultEndorsement) Endorse(prpBytes []byte, sp *peer.SignedProposal) (*peer.Endorsement, []byte, error) {
 	signer, err := e.SigningIdentityForRequest(sp)
 	if err != nil {
-		return nil, nil, errors.New(fmt.Sprintf("failed fetching signing identity: %v", err))
+		return nil, nil, fmt.Errorf("failed fetching signing identity: %v", err)
 	}
 	// serialize the signing identity
 	identityBytes, err := signer.Serialize()
 	if err != nil {
-		return nil, nil, errors.New(fmt.Sprintf("could not serialize the signing identity: %v", err))
+		return nil, nil, fmt.Errorf("could not serialize the signing identity: %v", err)
 	}
 
 	// sign the concatenation of the proposal response and the serialized endorser identity with this endorser's key
 	signature, err := signer.Sign(append(prpBytes, identityBytes...))
 	if err != nil {
-		return nil, nil, errors.New(fmt.Sprintf("could not sign the proposal response payload: %v", err))
+		return nil, nil, fmt.Errorf("could not sign the proposal response payload: %v", err)
 	}
 	endorsement := &peer.Endorsement{Signature: signature, Endorser: identityBytes}
 	return endorsement, prpBytes, nil
 }
 
 // Init injects dependencies into the instance of the Plugin
-func (e *DefaultEndorsement) Init(dependencies ...Dependency) error {
+func (e *DefaultEndorsement) Init(dependencies ...endorsement.Dependency) error {
 	for _, dep := range dependencies {
-		sIDFetcher, isSigningIdentityFetcher := dep.(SigningIdentityFetcher)
+		sIDFetcher, isSigningIdentityFetcher := dep.(identities.SigningIdentityFetcher)
 		if !isSigningIdentityFetcher {
 			continue
 		}
@@ -73,6 +72,6 @@ func (e *DefaultEndorsement) Init(dependencies ...Dependency) error {
 }
 
 // NewPluginFactory is the function ran by the plugin infrastructure to create an endorsement plugin factory.
-func NewPluginFactory() PluginFactory {
+func NewPluginFactory() endorsement.PluginFactory {
 	return &DefaultEndorsementFactory{}
 }

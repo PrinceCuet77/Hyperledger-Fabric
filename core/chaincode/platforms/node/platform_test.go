@@ -18,7 +18,7 @@ import (
 	"github.com/hyperledger/fabric/core/chaincode/platforms/util"
 	"github.com/hyperledger/fabric/core/config/configtest"
 	"github.com/spf13/viper"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var platform = &Platform{}
@@ -42,7 +42,6 @@ func TestValidatePath(t *testing.T) {
 	} else if !strings.HasPrefix(err.Error(), "invalid path") {
 		t.Fatalf("should have returned an error about parsing the path, but got '%v'", err)
 	}
-
 }
 
 func TestValidateCodePackage(t *testing.T) {
@@ -53,7 +52,7 @@ func TestValidateCodePackage(t *testing.T) {
 		t.Fatalf("should have returned an error about opening the invalid archive, but got '%v'", err)
 	}
 
-	cp, err := makeCodePackage([]*packageFile{{"filename.txt", 0100744}})
+	cp, err := makeCodePackage([]*packageFile{{"filename.txt", 0o100744}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +64,7 @@ func TestValidateCodePackage(t *testing.T) {
 		t.Fatalf("should have returned error about illegal file detected, but got '%s'", err)
 	}
 
-	cp, err = makeCodePackage([]*packageFile{{"src/filename.txt", 0100744}})
+	cp, err = makeCodePackage([]*packageFile{{"src/filename.txt", 0o100744}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +76,7 @@ func TestValidateCodePackage(t *testing.T) {
 		t.Fatalf("should have returned error about illegal file mode detected, but got '%s'", err)
 	}
 
-	cp, err = makeCodePackage([]*packageFile{{"src/filename.txt", 0100666}})
+	cp, err = makeCodePackage([]*packageFile{{"src/filename.txt", 0o100666}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +88,7 @@ func TestValidateCodePackage(t *testing.T) {
 		t.Fatalf("should have returned error about no package.json found, but got '%s'", err)
 	}
 
-	cp, err = makeCodePackage([]*packageFile{{"src/package.json", 0100666}, {"META-INF/path/to/meta", 0100744}})
+	cp, err = makeCodePackage([]*packageFile{{"src/package.json", 0o100666}, {"META-INF/path/to/meta", 0o100744}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +99,7 @@ func TestValidateCodePackage(t *testing.T) {
 	} else if !strings.HasPrefix(err.Error(), "illegal file mode detected for file") {
 		t.Fatalf("should have returned error about illegal file mode detected, but got '%s'", err)
 	}
-	cp, err = makeCodePackage([]*packageFile{{"src/package.json", 0100666}, {"META-INF/path/to/meta", 0100666}})
+	cp, err = makeCodePackage([]*packageFile{{"src/package.json", 0o100666}, {"META-INF/path/to/meta", 0o100666}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,13 +141,13 @@ fi
 
 func TestGenerateBuildOptions(t *testing.T) {
 	opts, err := platform.DockerBuildOptions("pathname")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	expectedOpts := util.DockerBuildOptions{
 		Image: "hyperledger/fabric-nodeenv:latest",
 		Cmd:   expectedBuildScript,
 	}
-	assert.Equal(t, expectedOpts, opts)
+	require.Equal(t, expectedOpts, opts)
 }
 
 func makeCodePackage(pfiles []*packageFile) ([]byte, error) {

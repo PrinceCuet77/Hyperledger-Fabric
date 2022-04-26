@@ -8,7 +8,6 @@ package blocksprovider
 
 import (
 	"context"
-	"crypto/x509"
 	"math"
 	"time"
 
@@ -74,7 +73,7 @@ type OrdererConnectionSource interface {
 
 //go:generate counterfeiter -o fake/dialer.go --fake-name Dialer . Dialer
 type Dialer interface {
-	Dial(address string, certPool *x509.CertPool) (*grpc.ClientConn, error)
+	Dial(address string, rootCerts [][]byte) (*grpc.ClientConn, error)
 }
 
 //go:generate counterfeiter -o fake/deliver_streamer.go --fake-name DeliverStreamer . DeliverStreamer
@@ -96,9 +95,10 @@ type Deliverer struct {
 	Logger          *flogging.FabricLogger
 	YieldLeadership bool
 
-	MaxRetryDelay     time.Duration
-	InitialRetryDelay time.Duration
-	MaxRetryDuration  time.Duration
+	BlockGossipDisabled bool
+	MaxRetryDelay       time.Duration
+	InitialRetryDelay   time.Duration
+	MaxRetryDuration    time.Duration
 
 	// TLSCertHash should be nil when TLS is not enabled
 	TLSCertHash []byte // util.ComputeSHA256(b.credSupport.GetClientCertificate().Certificate[0])
@@ -111,6 +111,9 @@ const backoffExponentBase = 1.2
 // DeliverBlocks used to pull out blocks from the ordering service to
 // distributed them across peers
 func (d *Deliverer) DeliverBlocks() {
+	if d.BlockGossipDisabled {
+		d.Logger.Infof("Will pull blocks without forwarding them to remote peers via gossip")
+	}
 	failureCounter := 0
 	totalDuration := time.Duration(0)
 
@@ -256,7 +259,9 @@ func (d *Deliverer) processMsg(msg *orderer.DeliverResponse) error {
 			d.Logger.Warningf("Block [%d] received from ordering service wasn't added to payload buffer: %v", blockNum, err)
 			return errors.WithMessage(err, "could not add block as payload")
 		}
-
+		if d.BlockGossipDisabled {
+			return nil
+		}
 		// Gossip messages with other nodes
 		d.Logger.Debugf("Gossiping block [%d]", blockNum)
 		d.Gossip.Gossip(gossipMsg)
@@ -284,7 +289,7 @@ func (d *Deliverer) connect(seekInfoEnv *common.Envelope) (orderer.AtomicBroadca
 		return nil, nil, nil, errors.WithMessage(err, "could not get orderer endpoints")
 	}
 
-	conn, err := d.Dialer.Dial(endpoint.Address, endpoint.CertPool)
+	conn, err := d.Dialer.Dial(endpoint.Address, endpoint.RootCerts)
 	if err != nil {
 		return nil, nil, nil, errors.WithMessagef(err, "could not dial endpoint '%s'", endpoint.Address)
 	}

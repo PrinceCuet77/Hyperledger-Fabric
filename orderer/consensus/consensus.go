@@ -26,6 +26,18 @@ type Consenter interface {
 	HandleChain(support ConsenterSupport, metadata *cb.Metadata) (Chain, error)
 }
 
+// ClusterConsenter defines methods implemented by cluster-type consenters.
+type ClusterConsenter interface {
+	// IsChannelMember inspects the join block and detects whether it implies that this orderer is a member of the
+	// channel. It returns true if the orderer is a member of the consenters set, and false if it is not. The method
+	// also inspects the consensus type metadata for validity. It returns an error if membership cannot be determined
+	// due to errors processing the block.
+	IsChannelMember(joinBlock *cb.Block) (bool, error)
+	// RemoveInactiveChainRegistry stops and removes the inactive chain registry.
+	// This is used when removing the system channel.
+	RemoveInactiveChainRegistry()
+}
+
 // MetadataValidator performs the validation of updates to ConsensusMetadata during config updates to the channel.
 // NOTE: We expect the MetadataValidator interface to be optionally implemented by the Consenter implementation.
 //       If a Consenter does not implement MetadataValidator, we default to using a no-op MetadataValidator.
@@ -34,7 +46,7 @@ type MetadataValidator interface {
 	// updates on the channel.
 	// Since the ConsensusMetadata is specific to the consensus implementation (independent of the particular
 	// chain) this validation also needs to be implemented by the specific consensus implementation.
-	ValidateConsensusMetadata(oldMetadata, newMetadata []byte, newChannel bool) error
+	ValidateConsensusMetadata(oldOrdererConfig, newOrdererConfig channelconfig.Orderer, newChannel bool) error
 }
 
 // Chain defines a way to inject messages for ordering.
@@ -128,11 +140,10 @@ type ConsenterSupport interface {
 }
 
 // NoOpMetadataValidator implements a MetadataValidator that always returns nil error irrespecttive of the inputs.
-type NoOpMetadataValidator struct {
-}
+type NoOpMetadataValidator struct{}
 
 // ValidateConsensusMetadata determines the validity of a ConsensusMetadata update during config updates
 // on the channel, and it always returns nil error for the NoOpMetadataValidator implementation.
-func (n NoOpMetadataValidator) ValidateConsensusMetadata(oldMetadataBytes, newMetadataBytes []byte, newChannel bool) error {
+func (n NoOpMetadataValidator) ValidateConsensusMetadata(oldChannelConfig, newChannelConfig channelconfig.Orderer, newChannel bool) error {
 	return nil
 }

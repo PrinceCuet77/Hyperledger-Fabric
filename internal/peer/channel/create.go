@@ -24,14 +24,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//ConfigTxFileNotFound channel create configuration tx file not found
+// ConfigTxFileNotFound channel create configuration tx file not found
 type ConfigTxFileNotFound string
 
 func (e ConfigTxFileNotFound) Error() string {
 	return fmt.Sprintf("channel create configuration tx file not found %s", string(e))
 }
 
-//InvalidCreateTx invalid channel create transaction
+// InvalidCreateTx invalid channel create transaction
 type InvalidCreateTx string
 
 func (e InvalidCreateTx) Error() string {
@@ -39,11 +39,15 @@ func (e InvalidCreateTx) Error() string {
 }
 
 func createCmd(cf *ChannelCmdFactory) *cobra.Command {
+	logger.Info("---createCmd---")
+
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a channel",
 		Long:  "Create a channel and write the genesis block to a file.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			channelID = "princechannel"
+			channelTxFile = "/home/prince-11209/go/src/github.com/hyperledger/fabric/princechannel.tx"
 			return create(cmd, args, cf)
 		},
 	}
@@ -138,9 +142,11 @@ func sanityCheckAndSignConfigTx(envConfigUpdate *cb.Envelope, signer identity.Si
 }
 
 func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
+	logger.Info("---sendCreateChainTransaction---")
 	var err error
 	var chCrtEnv *cb.Envelope
 
+	// channelTxFile = "/home/prince-11209/go/src/github.com/hyperledger/fabric/princechannel.tx"
 	if channelTxFile != "" {
 		if chCrtEnv, err = createChannelFromConfigTx(channelTxFile); err != nil {
 			return err
@@ -168,6 +174,8 @@ func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 }
 
 func executeCreate(cf *ChannelCmdFactory) error {
+	logger.Info("---executeCreate---")
+
 	err := sendCreateChainTransaction(cf)
 	if err != nil {
 		return err
@@ -187,7 +195,7 @@ func executeCreate(cf *ChannelCmdFactory) error {
 	if outputBlock != common.UndefinedParamValue {
 		file = outputBlock
 	}
-	err = ioutil.WriteFile(file, b, 0644)
+	err = ioutil.WriteFile(file, b, 0o644)
 	if err != nil {
 		return err
 	}
@@ -221,6 +229,29 @@ func getGenesisBlock(cf *ChannelCmdFactory) (*cb.Block, error) {
 }
 
 func create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
+	logger.Info("---create---")
+
+	// the global chainID filled by the "-c" command
+	if channelID == common.UndefinedParamValue {
+		return errors.New("must supply channel ID")
+	}
+
+	// Parsing of the command line is done so silence cmd usage
+	cmd.SilenceUsage = true
+
+	var err error
+	if cf == nil {
+		cf, err = InitCmdFactory(EndorserNotRequired, PeerDeliverNotRequired, OrdererRequired)
+		if err != nil {
+			return err
+		}
+	}
+	return executeCreate(cf)
+}
+
+func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
+	logger.Info("---create---")
+
 	// the global chainID filled by the "-c" command
 	if channelID == common.UndefinedParamValue {
 		return errors.New("must supply channel ID")

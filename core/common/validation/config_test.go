@@ -16,7 +16,7 @@ import (
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateConfigTx(t *testing.T) {
@@ -29,23 +29,24 @@ func TestValidateConfigTx(t *testing.T) {
 	}
 
 	updateResult := &cb.Envelope{
-		Payload: protoutil.MarshalOrPanic(&cb.Payload{Header: &cb.Header{
-			ChannelHeader: protoutil.MarshalOrPanic(&cb.ChannelHeader{
-				Type:      int32(cb.HeaderType_CONFIG),
-				ChannelId: channelID,
-			}),
-			SignatureHeader: protoutil.MarshalOrPanic(&cb.SignatureHeader{
-				Creator: signerSerialized,
-				Nonce:   protoutil.CreateNonceOrPanic(),
-			}),
-		},
+		Payload: protoutil.MarshalOrPanic(&cb.Payload{
+			Header: &cb.Header{
+				ChannelHeader: protoutil.MarshalOrPanic(&cb.ChannelHeader{
+					Type:      int32(cb.HeaderType_CONFIG),
+					ChannelId: channelID,
+				}),
+				SignatureHeader: protoutil.MarshalOrPanic(&cb.SignatureHeader{
+					Creator: signerSerialized,
+					Nonce:   protoutil.CreateNonceOrPanic(),
+				}),
+			},
 			Data: protoutil.MarshalOrPanic(&cb.ConfigEnvelope{
 				LastUpdate: chCrtEnv,
 			}),
 		}),
 	}
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	updateResult.Signature, _ = signer.Sign(updateResult.Payload)
 	_, txResult := ValidateTransaction(updateResult, cryptoProvider)
 	if txResult != peer.TxValidationCode_VALID {

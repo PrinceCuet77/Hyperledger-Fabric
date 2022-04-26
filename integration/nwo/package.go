@@ -32,7 +32,7 @@ func writeTarGz(c Chaincode, w io.Writer) {
 	tw := tar.NewWriter(gw)
 	defer closeAll(tw, gw)
 
-	writeMetadataJSON(tw, c.Path, "binary", c.Label)
+	writeMetadataJSON(tw, c.Path, c.Lang, c.Label)
 
 	writeCodeTarGz(tw, c.CodeFiles)
 }
@@ -56,8 +56,9 @@ func writeMetadataJSON(tw *tar.Writer, path, ccType, label string) {
 	err = tw.WriteHeader(&tar.Header{
 		Name: "metadata.json",
 		Size: int64(len(metadata)),
-		Mode: 0100644,
+		Mode: 0o100644,
 	})
+	Expect(err).NotTo(HaveOccurred())
 	_, err = tw.Write(metadata)
 	Expect(err).NotTo(HaveOccurred())
 }

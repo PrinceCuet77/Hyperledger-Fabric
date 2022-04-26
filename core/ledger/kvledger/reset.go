@@ -1,12 +1,13 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
+
 SPDX-License-Identifier: Apache-2.0
 */
 
 package kvledger
 
 import (
-	"github.com/hyperledger/fabric/common/ledger/blkstorage/fsblkstorage"
+	"github.com/hyperledger/fabric/common/ledger/blkstorage"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
 	"github.com/pkg/errors"
 )
@@ -20,6 +21,15 @@ func ResetAllKVLedgers(rootFSPath string) error {
 			" wait for that command to complete its execution or terminate it before retrying")
 	}
 	defer fileLock.Unlock()
+
+	blockstorePath := BlockStorePath(rootFSPath)
+	ledgerIDs, err := blkstorage.GetLedgersBootstrappedFromSnapshot(blockstorePath)
+	if err != nil {
+		return err
+	}
+	if len(ledgerIDs) > 0 {
+		return errors.Errorf("cannot reset channels because the peer contains channel(s) %s that were bootstrapped from snapshot", ledgerIDs)
+	}
 
 	logger.Info("Resetting all channel ledgers to genesis block")
 	logger.Infof("Ledger data folder from config = [%s]", rootFSPath)
@@ -37,18 +47,18 @@ func ResetAllKVLedgers(rootFSPath string) error {
 func LoadPreResetHeight(rootFSPath string, ledgerIDs []string) (map[string]uint64, error) {
 	blockstorePath := BlockStorePath(rootFSPath)
 	logger.Infof("Loading prereset height from path [%s]", blockstorePath)
-	return fsblkstorage.LoadPreResetHeight(blockstorePath, ledgerIDs)
+	return blkstorage.LoadPreResetHeight(blockstorePath, ledgerIDs)
 }
 
 // ClearPreResetHeight removes the prereset height recorded in the file system for the specified ledgers.
 func ClearPreResetHeight(rootFSPath string, ledgerIDs []string) error {
 	blockstorePath := BlockStorePath(rootFSPath)
 	logger.Infof("Clearing off prereset height files from path [%s] for ledgerIDs [%#v]", blockstorePath, ledgerIDs)
-	return fsblkstorage.ClearPreResetHeight(blockstorePath, ledgerIDs)
+	return blkstorage.ClearPreResetHeight(blockstorePath, ledgerIDs)
 }
 
 func resetBlockStorage(rootFSPath string) error {
 	blockstorePath := BlockStorePath(rootFSPath)
 	logger.Infof("Resetting BlockStore to genesis block at location [%s]", blockstorePath)
-	return fsblkstorage.ResetBlockStore(blockstorePath)
+	return blkstorage.ResetBlockStore(blockstorePath)
 }

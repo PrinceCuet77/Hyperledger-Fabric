@@ -42,9 +42,9 @@ var _ = Describe("EndToEnd", func() {
 		chaincode = nwo.Chaincode{
 			Name:            "mycc",
 			Version:         "0.0",
-			Path:            components.Build("github.com/hyperledger/fabric/integration/chaincode/module"),
+			Path:            components.Build("github.com/hyperledger/fabric/integration/chaincode/simple/cmd"),
 			Lang:            "binary",
-			PackageFile:     filepath.Join(testDir, "modulecc.tar.gz"),
+			PackageFile:     filepath.Join(testDir, "simplecc.tar.gz"),
 			Ctor:            `{"Args":["init","a","100","b","200"]}`,
 			SignaturePolicy: `AND ('Org1MSP.member','Org2MSP.member')`,
 			Sequence:        "1",
@@ -101,7 +101,6 @@ var _ = Describe("EndToEnd", func() {
 			Query(network, peer, "testchannel", "80")
 		})
 	})
-
 })
 
 func Query(n *nwo.Network, peer *nwo.Peer, channel string, expectedOutput string) {

@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package etcdraft
 
 import (
-	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"time"
@@ -19,6 +18,8 @@ import (
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
+	"github.com/hyperledger/fabric/common/crypto"
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -36,8 +37,15 @@ func RaftPeers(consenterIDs []uint64) []raft.Peer {
 	return peers
 }
 
+type ConsentersMap map[string]struct{}
+
+func (c ConsentersMap) Exists(consenter *etcdraft.Consenter) bool {
+	_, exists := c[string(consenter.ClientTlsCert)]
+	return exists
+}
+
 // ConsentersToMap maps consenters into set where key is client TLS certificate
-func ConsentersToMap(consenters []*etcdraft.Consenter) map[string]struct{} {
+func ConsentersToMap(consenters []*etcdraft.Consenter) ConsentersMap {
 	set := map[string]struct{}{}
 	for _, c := range consenters {
 		set[string(c.ClientTlsCert)] = struct{}{}
@@ -196,12 +204,17 @@ func ConsensusMetadataFromConfigBlock(block *common.Block) (*etcdraft.ConfigMeta
 	return MetadataFromConfigUpdate(configUpdate)
 }
 
-// CheckConfigMetadata validates Raft config metadata
-func CheckConfigMetadata(metadata *etcdraft.ConfigMetadata) error {
+// VerifyConfigMetadata validates Raft config metadata.
+// Note: ignores certificates expiration.
+func VerifyConfigMetadata(metadata *etcdraft.ConfigMetadata, verifyOpts x509.VerifyOptions) error {
 	if metadata == nil {
 		// defensive check. this should not happen as CheckConfigMetadata
 		// should always be called with non-nil config metadata
 		return errors.Errorf("nil Raft config metadata")
+	}
+
+	if metadata.Options == nil {
+		return errors.Errorf("nil Raft config metadata options")
 	}
 
 	if metadata.Options.HeartbeatTick == 0 ||
@@ -215,7 +228,7 @@ func CheckConfigMetadata(metadata *etcdraft.ConfigMetadata) error {
 	// check Raft options
 	if metadata.Options.ElectionTick <= metadata.Options.HeartbeatTick {
 		return errors.Errorf("ElectionTick (%d) must be greater than HeartbeatTick (%d)",
-			metadata.Options.HeartbeatTick, metadata.Options.HeartbeatTick)
+			metadata.Options.ElectionTick, metadata.Options.HeartbeatTick)
 	}
 
 	if d, err := time.ParseDuration(metadata.Options.TickInterval); err != nil {
@@ -228,16 +241,13 @@ func CheckConfigMetadata(metadata *etcdraft.ConfigMetadata) error {
 		return errors.Errorf("empty consenter set")
 	}
 
-	// sanity check of certificates
+	// verifying certificates for being signed by CA, expiration is ignored
 	for _, consenter := range metadata.Consenters {
 		if consenter == nil {
 			return errors.Errorf("metadata has nil consenter")
 		}
-		if err := validateCert(consenter.ServerTlsCert, "server"); err != nil {
-			return err
-		}
-		if err := validateCert(consenter.ClientTlsCert, "client"); err != nil {
-			return err
+		if err := validateConsenterTLSCerts(consenter, verifyOpts, true); err != nil {
+			return errors.WithMessagef(err, "consenter %s:%d has invalid certificate", consenter.Host, consenter.Port)
 		}
 	}
 
@@ -248,16 +258,96 @@ func CheckConfigMetadata(metadata *etcdraft.ConfigMetadata) error {
 	return nil
 }
 
-func validateCert(pemData []byte, certRole string) error {
-	bl, _ := pem.Decode(pemData)
-
-	if bl == nil {
-		return errors.Errorf("%s TLS certificate is not PEM encoded: %s", certRole, string(pemData))
+func parseCertificateFromBytes(cert []byte) (*x509.Certificate, error) {
+	pemBlock, _ := pem.Decode(cert)
+	if pemBlock == nil {
+		return &x509.Certificate{}, errors.Errorf("no PEM data found in cert[% x]", cert)
 	}
 
-	if _, err := x509.ParseCertificate(bl.Bytes); err != nil {
-		return errors.Errorf("%s TLS certificate has invalid ASN1 structure, %v: %s", certRole, err, string(pemData))
+	certificate, err := x509.ParseCertificate(pemBlock.Bytes)
+	if err != nil {
+		return nil, errors.Errorf("%s TLS certificate has invalid ASN1 structure %s", err, string(pemBlock.Bytes))
 	}
+
+	return certificate, nil
+}
+
+func parseCertificateListFromBytes(certs [][]byte) ([]*x509.Certificate, error) {
+	var certificateList []*x509.Certificate
+
+	for _, cert := range certs {
+		certificate, err := parseCertificateFromBytes(cert)
+		if err != nil {
+			return certificateList, err
+		}
+
+		certificateList = append(certificateList, certificate)
+	}
+
+	return certificateList, nil
+}
+
+func createX509VerifyOptions(ordererConfig channelconfig.Orderer) (x509.VerifyOptions, error) {
+	tlsRoots := x509.NewCertPool()
+	tlsIntermediates := x509.NewCertPool()
+
+	for _, org := range ordererConfig.Organizations() {
+		rootCerts, err := parseCertificateListFromBytes(org.MSP().GetTLSRootCerts())
+		if err != nil {
+			return x509.VerifyOptions{}, errors.Wrap(err, "parsing tls root certs")
+		}
+		intermediateCerts, err := parseCertificateListFromBytes(org.MSP().GetTLSIntermediateCerts())
+		if err != nil {
+			return x509.VerifyOptions{}, errors.Wrap(err, "parsing tls intermediate certs")
+		}
+
+		for _, cert := range rootCerts {
+			tlsRoots.AddCert(cert)
+		}
+
+		for _, cert := range intermediateCerts {
+			tlsIntermediates.AddCert(cert)
+		}
+	}
+
+	return x509.VerifyOptions{
+		Roots:         tlsRoots,
+		Intermediates: tlsIntermediates,
+		KeyUsages: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageClientAuth,
+			x509.ExtKeyUsageServerAuth,
+		},
+	}, nil
+}
+
+// validateConsenterTLSCerts decodes PEM cert, parses and validates it.
+func validateConsenterTLSCerts(c *etcdraft.Consenter, opts x509.VerifyOptions, ignoreExpiration bool) error {
+	clientCert, err := parseCertificateFromBytes(c.ClientTlsCert)
+	if err != nil {
+		return errors.Wrapf(err, "parsing tls client cert of %s:%d", c.Host, c.Port)
+	}
+
+	serverCert, err := parseCertificateFromBytes(c.ServerTlsCert)
+	if err != nil {
+		return errors.Wrapf(err, "parsing tls server cert of %s:%d", c.Host, c.Port)
+	}
+
+	verify := func(certType string, cert *x509.Certificate, opts x509.VerifyOptions) error {
+		if _, err := cert.Verify(opts); err != nil {
+			if validationRes, ok := err.(x509.CertificateInvalidError); !ok || (!ignoreExpiration || validationRes.Reason != x509.Expired) {
+				return errors.Wrapf(err, "verifying tls %s cert with serial number %d", certType, cert.SerialNumber)
+			}
+		}
+		return nil
+	}
+
+	if err := verify("client", clientCert, opts); err != nil {
+		return err
+	}
+	if err := verify("server", serverCert, opts); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -265,16 +355,15 @@ func validateCert(pemData []byte, certRole string) error {
 type ConsenterCertificate struct {
 	ConsenterCertificate []byte
 	CryptoProvider       bccsp.BCCSP
+	Logger               *flogging.FabricLogger
 }
-
-// type ConsenterCertificate []byte
 
 // IsConsenterOfChannel returns whether the caller is a consenter of a channel
 // by inspecting the given configuration block.
 // It returns nil if true, else returns an error.
 func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *common.Block) error {
-	if configBlock == nil {
-		return errors.New("nil block")
+	if configBlock == nil || configBlock.Header == nil {
+		return errors.New("nil block or nil header")
 	}
 	envelopeConfig, err := protoutil.ExtractEnvelope(configBlock, 0)
 	if err != nil {
@@ -293,11 +382,38 @@ func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *common.Blo
 		return err
 	}
 
+	bl, _ := pem.Decode(conCert.ConsenterCertificate)
+	if bl == nil {
+		return errors.Errorf("my consenter certificate %s is not a valid PEM", string(conCert.ConsenterCertificate))
+	}
+
+	myCertDER := bl.Bytes
+
+	var failedMatches []string
 	for _, consenter := range m.Consenters {
-		if bytes.Equal(conCert.ConsenterCertificate, consenter.ServerTlsCert) || bytes.Equal(conCert.ConsenterCertificate, consenter.ClientTlsCert) {
+		candidateBlock, _ := pem.Decode(consenter.ServerTlsCert)
+		if candidateBlock == nil {
+			return errors.Errorf("candidate server certificate %s is not a valid PEM", string(consenter.ServerTlsCert))
+		}
+		sameServerCertErr := crypto.CertificatesWithSamePublicKey(myCertDER, candidateBlock.Bytes)
+
+		candidateBlock, _ = pem.Decode(consenter.ClientTlsCert)
+		if candidateBlock == nil {
+			return errors.Errorf("candidate client certificate %s is not a valid PEM", string(consenter.ClientTlsCert))
+		}
+		sameClientCertErr := crypto.CertificatesWithSamePublicKey(myCertDER, candidateBlock.Bytes)
+
+		if sameServerCertErr == nil || sameClientCertErr == nil {
 			return nil
 		}
+		conCert.Logger.Debugf("I am not %s:%d because %s, %s", consenter.Host, consenter.Port, sameServerCertErr, sameClientCertErr)
+		failedMatches = append(failedMatches, string(consenter.ClientTlsCert))
 	}
+	conCert.Logger.Debugf("Failed matching our certificate %s against certificates encoded in config block %d: %v",
+		string(conCert.ConsenterCertificate),
+		configBlock.Header.Number,
+		failedMatches)
+
 	return cluster.ErrNotInChannel
 }
 

@@ -26,8 +26,7 @@ import (
 
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/mocks"
-	"github.com/hyperledger/fabric/bccsp/utils"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCBCPKCS7EncryptCBCPKCS7Decrypt encrypts using CBCPKCS7Encrypt and decrypts using CBCPKCS7Decrypt.
@@ -40,7 +39,7 @@ func TestCBCPKCS7EncryptCBCPKCS7Decrypt(t *testing.T) {
 	rand.Reader.Read(key)
 
 	//                  123456789012345678901234567890123456789012
-	var ptext = []byte("a message with arbitrary length (42 bytes)")
+	ptext := []byte("a message with arbitrary length (42 bytes)")
 
 	encrypted, encErr := AESCBCPKCS7Encrypt(key, ptext)
 	if encErr != nil {
@@ -63,10 +62,12 @@ func TestPKCS7Padding(t *testing.T) {
 
 	// 0 byte/length ptext
 	ptext := []byte("")
-	expected := []byte{16, 16, 16, 16,
+	expected := []byte{
 		16, 16, 16, 16,
 		16, 16, 16, 16,
-		16, 16, 16, 16}
+		16, 16, 16, 16,
+		16, 16, 16, 16,
+	}
 	result := pkcs7Padding(ptext)
 
 	if !bytes.Equal(expected, result) {
@@ -75,10 +76,12 @@ func TestPKCS7Padding(t *testing.T) {
 
 	// 1 byte/length ptext
 	ptext = []byte("1")
-	expected = []byte{'1', 15, 15, 15,
+	expected = []byte{
+		'1', 15, 15, 15,
 		15, 15, 15, 15,
 		15, 15, 15, 15,
-		15, 15, 15, 15}
+		15, 15, 15, 15,
+	}
 	result = pkcs7Padding(ptext)
 
 	if !bytes.Equal(expected, result) {
@@ -87,10 +90,12 @@ func TestPKCS7Padding(t *testing.T) {
 
 	// 2 byte/length ptext
 	ptext = []byte("12")
-	expected = []byte{'1', '2', 14, 14,
+	expected = []byte{
+		'1', '2', 14, 14,
 		14, 14, 14, 14,
 		14, 14, 14, 14,
-		14, 14, 14, 14}
+		14, 14, 14, 14,
+	}
 	result = pkcs7Padding(ptext)
 
 	if !bytes.Equal(expected, result) {
@@ -133,10 +138,12 @@ func TestPKCS7UnPadding(t *testing.T) {
 
 	// 0 byte/length ptext
 	expected := []byte("")
-	ptext := []byte{16, 16, 16, 16,
+	ptext := []byte{
 		16, 16, 16, 16,
 		16, 16, 16, 16,
-		16, 16, 16, 16}
+		16, 16, 16, 16,
+		16, 16, 16, 16,
+	}
 
 	result, _ := pkcs7UnPadding(ptext)
 
@@ -146,10 +153,12 @@ func TestPKCS7UnPadding(t *testing.T) {
 
 	// 1 byte/length ptext
 	expected = []byte("1")
-	ptext = []byte{'1', 15, 15, 15,
+	ptext = []byte{
+		'1', 15, 15, 15,
 		15, 15, 15, 15,
 		15, 15, 15, 15,
-		15, 15, 15, 15}
+		15, 15, 15, 15,
+	}
 
 	result, _ = pkcs7UnPadding(ptext)
 
@@ -159,10 +168,12 @@ func TestPKCS7UnPadding(t *testing.T) {
 
 	// 2 byte/length ptext
 	expected = []byte("12")
-	ptext = []byte{'1', '2', 14, 14,
+	ptext = []byte{
+		'1', '2', 14, 14,
 		14, 14, 14, 14,
 		14, 14, 14, 14,
-		14, 14, 14, 14}
+		14, 14, 14, 14,
+	}
 
 	result, _ = pkcs7UnPadding(ptext)
 
@@ -208,7 +219,7 @@ func TestCBCEncryptCBCPKCS7Decrypt_BlockSizeLengthPlaintext(t *testing.T) {
 	rand.Reader.Read(key)
 
 	//                  1234567890123456
-	var ptext = []byte("a 16 byte messag")
+	ptext := []byte("a 16 byte messag")
 
 	encrypted, encErr := aesCBCEncrypt(key, ptext)
 	if encErr != nil {
@@ -232,7 +243,7 @@ func TestCBCPKCS7EncryptCBCDecrypt_ExpectingCorruptMessage(t *testing.T) {
 	rand.Reader.Read(key)
 
 	//                  0123456789ABCDEF
-	var ptext = []byte("a 16 byte messag")
+	ptext := []byte("a 16 byte messag")
 
 	encrypted, encErr := AESCBCPKCS7Encrypt(key, ptext)
 	if encErr != nil {
@@ -264,7 +275,7 @@ func TestCBCPKCS7Encrypt_EmptyPlaintext(t *testing.T) {
 
 	t.Log("Generated key: ", key)
 
-	var emptyPlaintext = []byte("")
+	emptyPlaintext := []byte("")
 	t.Log("Plaintext length: ", len(emptyPlaintext))
 
 	ciphertext, encErr := AESCBCPKCS7Encrypt(key, emptyPlaintext)
@@ -291,16 +302,16 @@ func TestCBCEncrypt_EmptyPlaintext(t *testing.T) {
 	rand.Reader.Read(key)
 	t.Log("Generated key: ", key)
 
-	var emptyPlaintext = []byte("")
+	emptyPlaintext := []byte("")
 	t.Log("Message length: ", len(emptyPlaintext))
 
 	ciphertext, encErr := aesCBCEncrypt(key, emptyPlaintext)
-	assert.NoError(t, encErr)
+	require.NoError(t, encErr)
 
 	t.Log("Ciphertext length: ", len(ciphertext))
 
 	// Expected cipher length: aes.BlockSize, the first and only block is the IV
-	var expectedLength = aes.BlockSize
+	expectedLength := aes.BlockSize
 
 	if len(ciphertext) != expectedLength {
 		t.Fatalf("Wrong ciphertext length. Expected: '%d', received: '%d'", expectedLength, len(ciphertext))
@@ -316,7 +327,7 @@ func TestCBCPKCS7Encrypt_VerifyRandomIVs(t *testing.T) {
 	rand.Reader.Read(key)
 	t.Log("Key 1", key)
 
-	var ptext = []byte("a message to encrypt")
+	ptext := []byte("a message to encrypt")
 
 	ciphertext1, err := AESCBCPKCS7Encrypt(key, ptext)
 	if err != nil {
@@ -351,7 +362,7 @@ func TestCBCPKCS7Encrypt_CorrectCiphertextLengthCheck(t *testing.T) {
 	// length of message (in bytes) == aes.BlockSize (16 bytes)
 	// The expected cipher length = IV length (1 block) + 1 block message
 
-	var ptext = []byte("0123456789ABCDEF")
+	ptext := []byte("0123456789ABCDEF")
 
 	for i := 1; i < aes.BlockSize; i++ {
 		ciphertext, err := AESCBCPKCS7Encrypt(key, ptext[:i])
@@ -379,7 +390,7 @@ func TestCBCEncryptCBCDecrypt_KeyMismatch(t *testing.T) {
 	copy(wrongKey, key[:])
 	wrongKey[0] = key[0] + 1
 
-	var ptext = []byte("1234567890ABCDEF")
+	ptext := []byte("1234567890ABCDEF")
 	encrypted, encErr := aesCBCEncrypt(key, ptext)
 	if encErr != nil {
 		t.Fatalf("Error encrypting '%s': %v", ptext, encErr)
@@ -403,7 +414,7 @@ func TestCBCEncryptCBCDecrypt(t *testing.T) {
 	rand.Reader.Read(key)
 
 	//                  1234567890123456
-	var ptext = []byte("a 16 byte messag")
+	ptext := []byte("a 16 byte messag")
 
 	encrypted, encErr := aesCBCEncrypt(key, ptext)
 	if encErr != nil {
@@ -428,7 +439,7 @@ func TestCBCEncryptWithRandCBCDecrypt(t *testing.T) {
 	rand.Reader.Read(key)
 
 	//                  1234567890123456
-	var ptext = []byte("a 16 byte messag")
+	ptext := []byte("a 16 byte messag")
 
 	encrypted, encErr := aesCBCEncryptWithRand(rand.Reader, key, ptext)
 	if encErr != nil {
@@ -453,11 +464,11 @@ func TestCBCEncryptWithIVCBCDecrypt(t *testing.T) {
 	rand.Reader.Read(key)
 
 	//                  1234567890123456
-	var ptext = []byte("a 16 byte messag")
+	ptext := []byte("a 16 byte messag")
 
 	iv := make([]byte, aes.BlockSize)
 	_, err := io.ReadFull(rand.Reader, iv)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	encrypted, encErr := aesCBCEncryptWithIV(iv, key, ptext)
 	if encErr != nil {
@@ -519,8 +530,8 @@ func TestVariousAESKeyEncoding(t *testing.T) {
 	}
 
 	// PEM format
-	pem := utils.AEStoPEM(key)
-	keyFromPEM, err := utils.PEMtoAES(pem, nil)
+	pem := aesToPEM(key)
+	keyFromPEM, err := pemToAES(pem, nil)
 	if err != nil {
 		t.Fatalf("Failed converting PEM to AES key [%s]", err)
 	}
@@ -529,11 +540,11 @@ func TestVariousAESKeyEncoding(t *testing.T) {
 	}
 
 	// Encrypted PEM format
-	pem, err = utils.AEStoEncryptedPEM(key, []byte("passwd"))
+	pem, err = aesToEncryptedPEM(key, []byte("passwd"))
 	if err != nil {
 		t.Fatalf("Failed converting AES key to Encrypted PEM [%s]", err)
 	}
-	keyFromPEM, err = utils.PEMtoAES(pem, []byte("passwd"))
+	keyFromPEM, err = pemToAES(pem, []byte("passwd"))
 	if err != nil {
 		t.Fatalf("Failed converting encrypted PEM to AES key [%s]", err)
 	}
@@ -546,33 +557,33 @@ func TestPkcs7UnPaddingInvalidInputs(t *testing.T) {
 	t.Parallel()
 
 	_, err := pkcs7UnPadding([]byte{1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-	assert.Error(t, err)
-	assert.Equal(t, "Invalid pkcs7 padding (pad[i] != unpadding)", err.Error())
+	require.Error(t, err)
+	require.Equal(t, "Invalid pkcs7 padding (pad[i] != unpadding)", err.Error())
 }
 
 func TestAESCBCEncryptInvalidInputs(t *testing.T) {
 	t.Parallel()
 
 	_, err := aesCBCEncrypt(nil, []byte{0, 1, 2, 3})
-	assert.Error(t, err)
-	assert.Equal(t, "Invalid plaintext. It must be a multiple of the block size", err.Error())
+	require.Error(t, err)
+	require.Equal(t, "Invalid plaintext. It must be a multiple of the block size", err.Error())
 
 	_, err = aesCBCEncrypt([]byte{0}, []byte{1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 func TestAESCBCDecryptInvalidInputs(t *testing.T) {
 	t.Parallel()
 
 	_, err := aesCBCDecrypt([]byte{0}, []byte{1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = aesCBCDecrypt([]byte{1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}, []byte{0})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = aesCBCDecrypt([]byte{1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 		[]byte{1, 2, 3, 4, 5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-	assert.Error(t, err)
+	require.Error(t, err)
 }
 
 // TestAESCBCPKCS7EncryptorDecrypt tests the integration of
@@ -581,7 +592,7 @@ func TestAESCBCPKCS7EncryptorDecrypt(t *testing.T) {
 	t.Parallel()
 
 	raw, err := GetRandomBytes(32)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	k := &aesPrivateKey{privKey: raw, exportable: false}
 
@@ -589,43 +600,43 @@ func TestAESCBCPKCS7EncryptorDecrypt(t *testing.T) {
 	encryptor := &aescbcpkcs7Encryptor{}
 
 	_, err = encryptor.Encrypt(k, msg, nil)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = encryptor.Encrypt(k, msg, &mocks.EncrypterOpts{})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{IV: []byte{1}})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Invalid IV. It must have length the block size")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Invalid IV. It must have length the block size")
 
 	_, err = encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{IV: []byte{1}, PRNG: rand.Reader})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Invalid options. Either IV or PRNG should be different from nil, or both nil.")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Invalid options. Either IV or PRNG should be different from nil, or both nil.")
 
 	_, err = encryptor.Encrypt(k, msg, bccsp.AESCBCPKCS7ModeOpts{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ct, err := encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	decryptor := &aescbcpkcs7Decryptor{}
 
 	_, err = decryptor.Decrypt(k, ct, nil)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = decryptor.Decrypt(k, ct, &mocks.EncrypterOpts{})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	msg2, err := decryptor.Decrypt(k, ct, &bccsp.AESCBCPKCS7ModeOpts{})
-	assert.NoError(t, err)
-	assert.Equal(t, msg, msg2)
+	require.NoError(t, err)
+	require.Equal(t, msg, msg2)
 }
 
 func TestAESCBCPKCS7EncryptorWithIVSameCiphertext(t *testing.T) {
 	t.Parallel()
 
 	raw, err := GetRandomBytes(32)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	k := &aesPrivateKey{privKey: raw, exportable: false}
 
@@ -635,23 +646,23 @@ func TestAESCBCPKCS7EncryptorWithIVSameCiphertext(t *testing.T) {
 	iv := make([]byte, aes.BlockSize)
 
 	ct, err := encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{IV: iv})
-	assert.NoError(t, err)
-	assert.NotNil(t, ct)
-	assert.Equal(t, iv, ct[:aes.BlockSize])
+	require.NoError(t, err)
+	require.NotNil(t, ct)
+	require.Equal(t, iv, ct[:aes.BlockSize])
 
 	ct2, err := encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{IV: iv})
-	assert.NoError(t, err)
-	assert.NotNil(t, ct2)
-	assert.Equal(t, iv, ct2[:aes.BlockSize])
+	require.NoError(t, err)
+	require.NotNil(t, ct2)
+	require.Equal(t, iv, ct2[:aes.BlockSize])
 
-	assert.Equal(t, ct, ct2)
+	require.Equal(t, ct, ct2)
 }
 
 func TestAESCBCPKCS7EncryptorWithRandSameCiphertext(t *testing.T) {
 	t.Parallel()
 
 	raw, err := GetRandomBytes(32)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	k := &aesPrivateKey{privKey: raw, exportable: false}
 
@@ -661,19 +672,19 @@ func TestAESCBCPKCS7EncryptorWithRandSameCiphertext(t *testing.T) {
 	r := mrand.New(mrand.NewSource(0))
 	iv := make([]byte, aes.BlockSize)
 	_, err = io.ReadFull(r, iv)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	r = mrand.New(mrand.NewSource(0))
 	ct, err := encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{PRNG: r})
-	assert.NoError(t, err)
-	assert.NotNil(t, ct)
-	assert.Equal(t, iv, ct[:aes.BlockSize])
+	require.NoError(t, err)
+	require.NotNil(t, ct)
+	require.Equal(t, iv, ct[:aes.BlockSize])
 
 	r = mrand.New(mrand.NewSource(0))
 	ct2, err := encryptor.Encrypt(k, msg, &bccsp.AESCBCPKCS7ModeOpts{PRNG: r})
-	assert.NoError(t, err)
-	assert.NotNil(t, ct2)
-	assert.Equal(t, iv, ct2[:aes.BlockSize])
+	require.NoError(t, err)
+	require.NotNil(t, ct2)
+	require.Equal(t, iv, ct2[:aes.BlockSize])
 
-	assert.Equal(t, ct, ct2)
+	require.Equal(t, ct, ct2)
 }

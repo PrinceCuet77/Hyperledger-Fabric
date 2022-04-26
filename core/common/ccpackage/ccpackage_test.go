@@ -16,7 +16,7 @@ import (
 	mspprotos "github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/bccsp/sw"
-	"github.com/hyperledger/fabric/common/cauthdsl"
+	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/msp"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	msptesttools "github.com/hyperledger/fabric/msp/mgmt/testtools"
@@ -32,13 +32,14 @@ func ownerCreateCCDepSpec(codepackage []byte, sigpolicy *common.SignaturePolicyE
 func createInstantiationPolicy(mspid string, role mspprotos.MSPRole_MSPRoleType) *common.SignaturePolicyEnvelope {
 	principals := []*mspprotos.MSPPrincipal{{
 		PrincipalClassification: mspprotos.MSPPrincipal_ROLE,
-		Principal:               protoutil.MarshalOrPanic(&mspprotos.MSPRole{Role: role, MspIdentifier: mspid})}}
-	sigspolicy := []*common.SignaturePolicy{cauthdsl.SignedBy(int32(0))}
+		Principal:               protoutil.MarshalOrPanic(&mspprotos.MSPRole{Role: role, MspIdentifier: mspid}),
+	}}
+	sigspolicy := []*common.SignaturePolicy{policydsl.SignedBy(int32(0))}
 
 	// create the policy: it requires exactly 1 signature from any of the principals
 	p := &common.SignaturePolicyEnvelope{
 		Version:    0,
-		Rule:       cauthdsl.NOutOf(1, sigspolicy),
+		Rule:       policydsl.NOutOf(1, sigspolicy),
 		Identities: principals,
 	}
 
@@ -63,7 +64,7 @@ func TestAddSignature(t *testing.T) {
 		t.Fatalf("error owner creating package %s", err)
 		return
 	}
-	//add one more with the same signer (we don't have another signer to test with)
+	// add one more with the same signer (we don't have another signer to test with)
 	env, err = SignExistingPackage(env, signer)
 	if err != nil || env == nil {
 		t.Fatalf("error signing existing package %s", err)
@@ -277,9 +278,11 @@ func TestMismatchedSigPolicy(t *testing.T) {
 	}
 }
 
-var localmsp msp.MSP
-var signer msp.SigningIdentity
-var signerSerialized []byte
+var (
+	localmsp         msp.MSP
+	signer           msp.SigningIdentity
+	signerSerialized []byte
+)
 
 func TestMain(m *testing.M) {
 	// setup the MSP manager so that we can sign/verify

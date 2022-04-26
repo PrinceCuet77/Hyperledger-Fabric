@@ -8,33 +8,37 @@ package nwo
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/template"
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
-	"github.com/hyperledger/fabric/integration/helpers"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
-	"github.com/hyperledger/fabric/integration/runner"
+	"github.com/hyperledger/fabric/integration/nwo/runner"
 	"github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
-	. "github.com/onsi/gomega/gstruct"
-	"github.com/onsi/gomega/matchers"
+	"github.com/onsi/gomega/gstruct"
 	"github.com/onsi/gomega/types"
 	"github.com/tedsuo/ifrit"
 	"github.com/tedsuo/ifrit/ginkgomon"
 	"github.com/tedsuo/ifrit/grouper"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"gopkg.in/yaml.v2"
 )
 
@@ -64,9 +68,11 @@ type Consortium struct {
 // Consensus indicates the orderer types and how many broker and zookeeper
 // instances.
 type Consensus struct {
-	Type       string `yaml:"type,omitempty"`
-	Brokers    int    `yaml:"brokers,omitempty"`
-	ZooKeepers int    `yaml:"zookeepers,omitempty"`
+	Type                        string `yaml:"type,omitempty"`
+	BootstrapMethod             string `yaml:"bootstrap_method,omitempty"`
+	Brokers                     int    `yaml:"brokers,omitempty"`
+	ZooKeepers                  int    `yaml:"zookeepers,omitempty"`
+	ChannelParticipationEnabled bool   `yaml:"channel_participation_enabled,omitempty"`
 }
 
 // The SystemChannel declares the name of the network system channel and its
@@ -98,6 +104,7 @@ func (o Orderer) ID() string {
 // channels that the peer should be joined to.
 type Peer struct {
 	Name         string         `yaml:"name,omitempty"`
+	DevMode      bool           `yaml:"devmode,omitempty"`
 	Organization string         `yaml:"organization,omitempty"`
 	Channels     []*PeerChannel `yaml:"channels,omitempty"`
 }
@@ -136,16 +143,19 @@ type Profile struct {
 
 // Network holds information about a fabric network.
 type Network struct {
-	RootDir            string
-	StartPort          uint16
-	Components         *Components
-	DockerClient       *docker.Client
-	ExternalBuilders   []fabricconfig.ExternalBuilder
-	NetworkID          string
-	EventuallyTimeout  time.Duration
-	MetricsProvider    string
-	StatsdEndpoint     string
-	ClientAuthRequired bool
+	RootDir               string
+	StartPort             uint16
+	Components            *Components
+	DockerClient          *docker.Client
+	ExternalBuilders      []fabricconfig.ExternalBuilder
+	NetworkID             string
+	EventuallyTimeout     time.Duration
+	SessionCreateInterval time.Duration
+	MetricsProvider       string
+	StatsdEndpoint        string
+	ClientAuthRequired    bool
+	TLSEnabled            bool
+	GatewayEnabled        bool
 
 	PortsByBrokerID  map[string]Ports
 	PortsByOrdererID map[string]Ports
@@ -160,47 +170,64 @@ type Network struct {
 	Consortiums      []*Consortium
 	Templates        *Templates
 
-	colorIndex uint
+	mutex        sync.Locker
+	colorIndex   uint
+	lastExecuted map[string]time.Time
 }
 
 // New creates a Network from a simple configuration. All generated or managed
 // artifacts for the network will be located under rootDir. Ports will be
 // allocated sequentially from the specified startPort.
-func New(c *Config, rootDir string, client *docker.Client, startPort int, components *Components) *Network {
+func New(c *Config, rootDir string, dockerClient *docker.Client, startPort int, components *Components) *Network {
 	network := &Network{
 		StartPort:    uint16(startPort),
 		RootDir:      rootDir,
 		Components:   components,
-		DockerClient: client,
+		DockerClient: dockerClient,
 
-		NetworkID:         helpers.UniqueName(),
+		NetworkID:         runner.UniqueName(),
 		EventuallyTimeout: time.Minute,
 		MetricsProvider:   "prometheus",
 		PortsByBrokerID:   map[string]Ports{},
 		PortsByOrdererID:  map[string]Ports{},
 		PortsByPeerID:     map[string]Ports{},
 
-		Organizations: c.Organizations,
-		Consensus:     c.Consensus,
-		Orderers:      c.Orderers,
-		Peers:         c.Peers,
-		SystemChannel: c.SystemChannel,
-		Channels:      c.Channels,
-		Profiles:      c.Profiles,
-		Consortiums:   c.Consortiums,
-		Templates:     c.Templates,
+		Organizations:  c.Organizations,
+		Consensus:      c.Consensus,
+		Orderers:       c.Orderers,
+		Peers:          c.Peers,
+		SystemChannel:  c.SystemChannel,
+		Channels:       c.Channels,
+		Profiles:       c.Profiles,
+		Consortiums:    c.Consortiums,
+		Templates:      c.Templates,
+		TLSEnabled:     true, // Set TLS enabled as true for default
+		GatewayEnabled: true, // Set Gateway enabled as true for default
+
+		mutex:        &sync.Mutex{},
+		lastExecuted: make(map[string]time.Time),
 	}
 
+	// add the ccaas builder as well; that is built into the release directory
+	// so work that out based on current runtime.
+	// make integration-preqreqs have been updated to ensure this is built
 	cwd, err := os.Getwd()
 	Expect(err).NotTo(HaveOccurred())
 	network.ExternalBuilders = []fabricconfig.ExternalBuilder{{
 		Path:                 filepath.Join(cwd, "..", "externalbuilders", "binary"),
 		Name:                 "binary",
-		EnvironmentWhitelist: []string{"GOPROXY"},
+		PropagateEnvironment: []string{"GOPROXY"},
+	}, {
+		Path:                 filepath.Join(cwd, "..", "..", "release", fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH), "bin", "ccaas_builder"),
+		Name:                 "ccaas",
+		PropagateEnvironment: []string{"CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG"},
 	}}
 
 	if network.Templates == nil {
 		network.Templates = &Templates{}
+	}
+	if network.SessionCreateInterval == 0 {
+		network.SessionCreateInterval = time.Second
 	}
 
 	for i := 0; i < network.Consensus.Brokers; i++ {
@@ -226,7 +253,25 @@ func New(c *Config, rootDir string, client *docker.Client, startPort int, compon
 		}
 		network.PortsByPeerID[p.ID()] = ports
 	}
+
+	if dockerClient != nil {
+		assertImagesExist(dockerClient, RequiredImages...)
+	}
+
 	return network
+}
+
+func assertImagesExist(dockerClient *docker.Client, images ...string) {
+	for _, imageName := range images {
+		images, err := dockerClient.ListImages(docker.ListImagesOptions{
+			Filters: map[string][]string{"reference": {imageName}},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		if len(images) != 1 {
+			ginkgo.Fail(fmt.Sprintf("missing required image: %s", imageName), 1)
+		}
+	}
 }
 
 // AddOrg adds an organization to a network.
@@ -305,7 +350,11 @@ func (n *Network) WriteOrdererConfig(o *Orderer, config *fabricconfig.Orderer) {
 	ordererBytes, err := yaml.Marshal(config)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = ioutil.WriteFile(n.OrdererConfigPath(o), ordererBytes, 0644)
+	err = ioutil.WriteFile(n.OrdererConfigPath(o), ordererBytes, 0o644)
+	Expect(err).NotTo(HaveOccurred())
+
+	pw := gexec.NewPrefixedWriter(fmt.Sprintf("[updated-%s#orderer.yaml] ", o.ID()), ginkgo.GinkgoWriter)
+	_, err = pw.Write(ordererBytes)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -327,7 +376,7 @@ func (n *Network) WriteConfigTxConfig(config *fabricconfig.ConfigTx) {
 	configtxBytes, err := yaml.Marshal(config)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = ioutil.WriteFile(n.ConfigTxConfigPath(), configtxBytes, 0644)
+	err = ioutil.WriteFile(n.ConfigTxConfigPath(), configtxBytes, 0o644)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -367,7 +416,11 @@ func (n *Network) WritePeerConfig(p *Peer, config *fabricconfig.Core) {
 	coreBytes, err := yaml.Marshal(config)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = ioutil.WriteFile(n.PeerConfigPath(p), coreBytes, 0644)
+	err = ioutil.WriteFile(n.PeerConfigPath(p), coreBytes, 0o644)
+	Expect(err).NotTo(HaveOccurred())
+
+	pw := gexec.NewPrefixedWriter(fmt.Sprintf("[updated-%s#core.yaml] ", p.ID()), ginkgo.GinkgoWriter)
+	_, err = pw.Write(coreBytes)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -400,6 +453,28 @@ func (n *Network) userCryptoDir(org *Organization, nodeOrganizationType, user, c
 		"users",
 		fmt.Sprintf("%s@%s", user, org.Domain),
 		cryptoMaterialType,
+	)
+}
+
+// PeerOrgCADir returns the path to the folder containing the CA certificate(s) and/or
+// keys for the specified peer organization.
+func (n *Network) PeerOrgCADir(o *Organization) string {
+	return filepath.Join(
+		n.CryptoPath(),
+		"peerOrganizations",
+		o.Domain,
+		"ca",
+	)
+}
+
+// OrdererOrgCADir returns the path to the folder containing the CA certificate(s) and/or
+// keys for the specified orderer organization.
+func (n *Network) OrdererOrgCADir(o *Organization) string {
+	return filepath.Join(
+		n.CryptoPath(),
+		"ordererOrganizations",
+		o.Domain,
+		"ca",
 	)
 }
 
@@ -440,6 +515,19 @@ func (n *Network) PeerUserCert(p *Peer, user string) string {
 	)
 }
 
+// PeerCACert returns the path to the CA certificate for the peer
+// organization.
+func (n *Network) PeerCACert(p *Peer) string {
+	org := n.Organization(p.Organization)
+	Expect(org).NotTo(BeNil())
+
+	return filepath.Join(
+		n.PeerOrgMSPDir(org),
+		"cacerts",
+		fmt.Sprintf("ca.%s-cert.pem", org.Domain),
+	)
+}
+
 // OrdererUserCert returns the path to the certificate for the specified user in
 // the orderer organization.
 func (n *Network) OrdererUserCert(o *Orderer, user string) string {
@@ -450,6 +538,19 @@ func (n *Network) OrdererUserCert(o *Orderer, user string) string {
 		n.OrdererUserMSPDir(o, user),
 		"signcerts",
 		fmt.Sprintf("%s@%s-cert.pem", user, org.Domain),
+	)
+}
+
+// OrdererCACert returns the path to the CA certificate for the orderer
+// organization.
+func (n *Network) OrdererCACert(o *Orderer) string {
+	org := n.Organization(o.Organization)
+	Expect(org).NotTo(BeNil())
+
+	return filepath.Join(
+		n.OrdererOrgMSPDir(org),
+		"cacerts",
+		fmt.Sprintf("ca.%s-cert.pem", org.Domain),
 	)
 }
 
@@ -489,6 +590,26 @@ func (n *Network) OrdererUserKey(o *Orderer, user string) string {
 	Expect(keys).To(HaveLen(1))
 
 	return filepath.Join(keystore, keys[0].Name())
+}
+
+// PeerUserSigner returns a SigningIdentity representing the specified user in
+// the peer organization.
+func (n *Network) PeerUserSigner(p *Peer, user string) *SigningIdentity {
+	return &SigningIdentity{
+		CertPath: n.PeerUserCert(p, user),
+		KeyPath:  n.PeerUserKey(p, user),
+		MSPID:    n.Organization(p.Organization).MSPID,
+	}
+}
+
+// OrdererUserSigner returns a SigningIdentity representing the specified user in
+// the orderer organization.
+func (n *Network) OrdererUserSigner(o *Orderer, user string) *SigningIdentity {
+	return &SigningIdentity{
+		CertPath: n.OrdererUserCert(o, user),
+		KeyPath:  n.OrdererUserKey(o, user),
+		MSPID:    n.Organization(o.Organization).MSPID,
+	}
 }
 
 // peerLocalCryptoDir returns the path to the local crypto directory for the peer.
@@ -619,13 +740,13 @@ func (n *Network) CACertsBundlePath() string {
 // When this method completes, the resulting tree will look something like
 // this:
 //
-// ${rootDir}/configtx.yaml
-// ${rootDir}/crypto-config.yaml
-// ${rootDir}/orderers/orderer0.orderer-org/orderer.yaml
-// ${rootDir}/peers/peer0.org1/core.yaml
-// ${rootDir}/peers/peer0.org2/core.yaml
-// ${rootDir}/peers/peer1.org1/core.yaml
-// ${rootDir}/peers/peer1.org2/core.yaml
+//    ${rootDir}/configtx.yaml
+//    ${rootDir}/crypto-config.yaml
+//    ${rootDir}/orderers/orderer0.orderer-org/orderer.yaml
+//    ${rootDir}/peers/peer0.org1/core.yaml
+//    ${rootDir}/peers/peer0.org2/core.yaml
+//    ${rootDir}/peers/peer1.org1/core.yaml
+//    ${rootDir}/peers/peer1.org2/core.yaml
 //
 func (n *Network) GenerateConfigTree() {
 	n.GenerateCryptoConfig()
@@ -655,13 +776,7 @@ func (n *Network) GenerateConfigTree() {
 // written to ${rootDir}/${Channel.Name}_tx.pb.
 func (n *Network) Bootstrap() {
 	if n.DockerClient != nil {
-		_, err := n.DockerClient.CreateNetwork(
-			docker.CreateNetworkOptions{
-				Name:   n.NetworkID,
-				Driver: "bridge",
-			},
-		)
-		Expect(err).NotTo(HaveOccurred())
+		n.CreateDockerNetwork()
 	}
 
 	sess, err := n.Cryptogen(commands.Generate{
@@ -697,10 +812,94 @@ func (n *Network) Bootstrap() {
 	n.ConcatenateTLSCACertificates()
 }
 
+func (n *Network) CreateDockerNetwork() {
+	_, err := n.DockerClient.CreateNetwork(
+		docker.CreateNetworkOptions{
+			Name:   n.NetworkID,
+			Driver: "bridge",
+		},
+	)
+	Expect(err).NotTo(HaveOccurred())
+
+	if runtime.GOOS == "darwin" {
+		n.checkDockerNetworks()
+	}
+}
+
+// checkDockerNetworks attempts to discover if the docker network configuration
+// will prevent a container from accessing the host. This commonly happens when
+// using Docker for Mac on home networks because most home routers provide DHCP
+// addresses from 192.168.1.0/24 and the default Docker daemon config uses
+// 192.168.0.0/20 as one of the default local address pools.
+//
+// https://github.com/moby/libnetwork/blob/1a17fb36132631a95fe6bb055b91e24a516ad81d/ipamutils/utils.go#L18-L20
+//
+// Docker can be configured to use different addresses by adding an
+// appropriate default-address-pools configuration element to "daemon.json".
+//
+// For example:
+//   "default-address-pools":[
+//       {"base":"172.30.0.0/16","size":24},
+//       {"base":"172.31.0.0/16","size":24}
+//   ]
+func (n *Network) checkDockerNetworks() {
+	hostAddrs := hostIPv4Addrs()
+	for _, nw := range n.dockerIPNets() {
+		for _, a := range hostAddrs {
+			if nw.Contains(a) {
+				fmt.Fprintf(ginkgo.GinkgoWriter, "\x1b[01;37;41mWARNING: docker network %s overlaps with host address %s.\x1b[0m\n", nw, a)
+				fmt.Fprintf(ginkgo.GinkgoWriter, "\x1b[01;37;41mDocker containers may not have connectivity causing chaincode registration to fail with 'no route to host'.\x1b[0m\n")
+			}
+		}
+	}
+}
+
+func (n *Network) dockerIPNets() []*net.IPNet {
+	dockerNetworks, err := n.DockerClient.ListNetworks()
+	Expect(err).NotTo(HaveOccurred())
+
+	var nets []*net.IPNet
+	for _, nw := range dockerNetworks {
+		for _, ipconf := range nw.IPAM.Config {
+			if ipconf.Subnet != "" {
+				_, ipn, err := net.ParseCIDR(ipconf.Subnet)
+				Expect(err).NotTo(HaveOccurred())
+				nets = append(nets, ipn)
+			}
+		}
+	}
+	return nets
+}
+
+func hostIPv4Addrs() []net.IP {
+	interfaces, err := net.Interfaces()
+	Expect(err).NotTo(HaveOccurred())
+
+	var addresses []net.IP
+	for _, i := range interfaces {
+		addrs, err := i.Addrs()
+		Expect(err).NotTo(HaveOccurred())
+
+		for _, a := range addrs {
+			a := a
+			switch v := a.(type) {
+			case *net.IPAddr:
+				if v.IP.To4() != nil {
+					addresses = append(addresses, v.IP)
+				}
+			case *net.IPNet:
+				if v.IP.To4() != nil {
+					addresses = append(addresses, v.IP)
+				}
+			}
+		}
+	}
+	return addresses
+}
+
 // bootstrapIdemix creates the idemix-related crypto material
 func (n *Network) bootstrapIdemix() {
 	for j, org := range n.IdemixOrgs() {
-
 		output := n.IdemixOrgMSPDir(org)
 		// - ca-keygen
 		sess, err := n.Idemixgen(commands.CAKeyGen{
@@ -711,13 +910,13 @@ func (n *Network) bootstrapIdemix() {
 
 		// - signerconfig
 		usersOutput := filepath.Join(n.IdemixOrgMSPDir(org), "users")
-		userOutput := filepath.Join(usersOutput, fmt.Sprintf("User%d@%s", 1, org.Domain))
+		userOutput := filepath.Join(usersOutput, "User1@"+org.Domain)
 		sess, err = n.Idemixgen(commands.SignerConfig{
 			CAInput:          output,
 			Output:           userOutput,
 			OrgUnit:          org.Domain,
-			EnrollmentID:     "User" + string(1),
-			RevocationHandle: fmt.Sprintf("1%d%d", 1, j),
+			EnrollmentID:     "User1",
+			RevocationHandle: fmt.Sprintf("11%d", j),
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
@@ -733,7 +932,7 @@ func (n *Network) ConcatenateTLSCACertificates() {
 		Expect(err).NotTo(HaveOccurred())
 		bundle.Write(certBytes)
 	}
-	err := ioutil.WriteFile(n.CACertsBundlePath(), bundle.Bytes(), 0660)
+	err := ioutil.WriteFile(n.CACertsBundlePath(), bundle.Bytes(), 0o660)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -759,7 +958,7 @@ func (n *Network) listTLSCACertificates() []string {
 // Cleanup attempts to cleanup docker related artifacts that may
 // have been created by the network.
 func (n *Network) Cleanup() {
-	if n.DockerClient == nil {
+	if n == nil || n.DockerClient == nil {
 		return
 	}
 
@@ -856,25 +1055,41 @@ func (n *Network) UpdateChannelAnchors(o *Orderer, channelName string) {
 	}
 }
 
-// VerifyMembership checks that each peer has discovered the expected
-// peers in the network
+// VerifyMembership checks that each peer has discovered the expected peers in
+// the network.
 func (n *Network) VerifyMembership(expectedPeers []*Peer, channel string, chaincodes ...string) {
 	// all peers currently include _lifecycle as an available chaincode
 	chaincodes = append(chaincodes, "_lifecycle")
 	expectedDiscoveredPeerMatchers := make([]types.GomegaMatcher, len(expectedPeers))
 	for i, peer := range expectedPeers {
-		expectedDiscoveredPeerMatchers[i] = n.DiscoveredPeerMatcher(peer, chaincodes...) //n.DiscoveredPeer(peer, chaincodes...)
+		expectedDiscoveredPeerMatchers[i] = n.discoveredPeerMatcher(peer, chaincodes...)
 	}
 	for _, peer := range expectedPeers {
 		Eventually(DiscoverPeers(n, peer, "User1", channel), n.EventuallyTimeout).Should(ConsistOf(expectedDiscoveredPeerMatchers))
 	}
 }
 
+func (n *Network) discoveredPeerMatcher(p *Peer, chaincodes ...string) types.GomegaMatcher {
+	peerCert, err := ioutil.ReadFile(n.PeerCert(p))
+	Expect(err).NotTo(HaveOccurred())
+
+	var ccs []interface{}
+	for _, cc := range chaincodes {
+		ccs = append(ccs, cc)
+	}
+	return gstruct.MatchAllFields(gstruct.Fields{
+		"MSPID":      Equal(n.Organization(p.Organization).MSPID),
+		"Endpoint":   Equal(fmt.Sprintf("127.0.0.1:%d", n.PeerPort(p, ListenPort))),
+		"Identity":   Equal(string(peerCert)),
+		"Chaincodes": ContainElements(ccs...),
+	})
+}
+
 // CreateChannel will submit an existing create channel transaction to the
 // specified orderer. The channel transaction must exist at the location
-// returned by CreateChannelTxPath.  Optionally, additional signers may be
-// included in the case where the channel creation tx modifies other
-// aspects of the channel config for the new channel.
+// returned by CreateChannelTxPath. Optionally, additional signers may be
+// included in the case where the channel creation tx modifies other aspects of
+// the channel config for the new channel.
 //
 // The orderer must be running when this is called.
 func (n *Network) CreateChannel(channelName string, o *Orderer, p *Peer, additionalSigners ...interface{}) {
@@ -975,6 +1190,30 @@ func (n *Network) JoinChannel(name string, o *Orderer, peers ...*Peer) {
 	}
 }
 
+func (n *Network) JoinChannelBySnapshot(snapshotDir string, peers ...*Peer) {
+	if len(peers) == 0 {
+		return
+	}
+
+	for _, p := range peers {
+		sess, err := n.PeerAdminSession(p, commands.ChannelJoinBySnapshot{
+			SnapshotPath: snapshotDir,
+			ClientAuth:   n.ClientAuthRequired,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
+	}
+}
+
+func (n *Network) JoinBySnapshotStatus(p *Peer) string {
+	sess, err := n.PeerAdminSession(p, commands.ChannelJoinBySnapshotStatus{
+		ClientAuth: n.ClientAuthRequired,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(sess, n.EventuallyTimeout).Should(gexec.Exit(0))
+	return string(sess.Out.Contents())
+}
+
 // Cryptogen starts a gexec.Session for the provided cryptogen command.
 func (n *Network) Cryptogen(command Command) (*gexec.Session, error) {
 	cmd := NewCommand(n.Components.Cryptogen(), command)
@@ -997,6 +1236,12 @@ func (n *Network) ConfigTxGen(command Command) (*gexec.Session, error) {
 func (n *Network) Discover(command Command) (*gexec.Session, error) {
 	cmd := NewCommand(n.Components.Discover(), command)
 	cmd.Args = append(cmd.Args, "--peerTLSCA", n.CACertsBundlePath())
+	return n.StartSession(cmd, command.SessionName())
+}
+
+// Osnadmin starts a gexec.Session for the provided osnadmin command.
+func (n *Network) Osnadmin(command Command) (*gexec.Session, error) {
+	cmd := NewCommand(n.Components.Osnadmin(), command)
 	return n.StartSession(cmd, command.SessionName())
 }
 
@@ -1035,7 +1280,7 @@ func (n *Network) defaultBrokerReplication() int {
 	return 3
 }
 
-// BrokerRunner returns a runner for an kafka broker instance.
+// BrokerRunner returns a runner for a Kafka broker instance.
 func (n *Network) BrokerRunner(id int, zookeepers []string) *runner.Kafka {
 	colorCode := n.nextColor()
 	name := fmt.Sprintf("kafka-%d-%s", id, n.NetworkID)
@@ -1062,7 +1307,7 @@ func (n *Network) BrokerRunner(id int, zookeepers []string) *runner.Kafka {
 }
 
 // BrokerGroupRunner returns a runner that manages the processes that make up
-// the kafka broker network for fabric.
+// the Kafka broker network for fabric.
 func (n *Network) BrokerGroupRunner() ifrit.Runner {
 	members := grouper.Members{}
 	zookeepers := []string{}
@@ -1083,10 +1328,11 @@ func (n *Network) BrokerGroupRunner() ifrit.Runner {
 
 // OrdererRunner returns an ifrit.Runner for the specified orderer. The runner
 // can be used to start and manage an orderer process.
-func (n *Network) OrdererRunner(o *Orderer) *ginkgomon.Runner {
+func (n *Network) OrdererRunner(o *Orderer, env ...string) *ginkgomon.Runner {
 	cmd := exec.Command(n.Components.Orderer())
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, fmt.Sprintf("FABRIC_CFG_PATH=%s", n.OrdererDir(o)))
+	cmd.Env = append(cmd.Env, env...)
 
 	config := ginkgomon.Config{
 		AnsiColorCode:     n.nextColor(),
@@ -1119,9 +1365,11 @@ func (n *Network) OrdererGroupRunner() ifrit.Runner {
 // used to start and manage a peer process.
 func (n *Network) PeerRunner(p *Peer, env ...string) *ginkgomon.Runner {
 	cmd := n.peerCommand(
-		commands.NodeStart{PeerID: p.ID()},
+		commands.NodeStart{PeerID: p.ID(), DevMode: p.DevMode},
 		"",
-		fmt.Sprintf("FABRIC_CFG_PATH=%s", n.PeerDir(p)),
+		"FABRIC_CFG_PATH="+n.PeerDir(p),
+		"CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin",
+		"CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw",
 	)
 	cmd.Env = append(cmd.Env, env...)
 
@@ -1158,12 +1406,13 @@ func (n *Network) NetworkGroupRunner() ifrit.Runner {
 func (n *Network) peerCommand(command Command, tlsDir string, env ...string) *exec.Cmd {
 	cmd := NewCommand(n.Components.Peer(), command)
 	cmd.Env = append(cmd.Env, env...)
-	if ConnectsToOrderer(command) {
+
+	if connectsToOrderer(command) && n.TLSEnabled {
 		cmd.Args = append(cmd.Args, "--tls")
 		cmd.Args = append(cmd.Args, "--cafile", n.CACertsBundlePath())
 	}
 
-	if ClientAuthEnabled(command) {
+	if clientAuthEnabled(command) {
 		certfilePath := filepath.Join(tlsDir, "client.crt")
 		keyfilePath := filepath.Join(tlsDir, "client.key")
 
@@ -1171,17 +1420,41 @@ func (n *Network) peerCommand(command Command, tlsDir string, env ...string) *ex
 		cmd.Args = append(cmd.Args, "--keyfile", keyfilePath)
 	}
 
-	// In case we have a peer invoke with multiple certificates,
-	// we need to mimic the correct peer CLI usage,
-	// so we count the number of --peerAddresses usages
-	// we have, and add the same (concatenated TLS CA certificates file)
+	// In case we have a peer invoke with multiple certificates, we need to mimic
+	// the correct peer CLI usage, so we count the number of --peerAddresses
+	// usages we have, and add the same (concatenated TLS CA certificates file)
 	// the same number of times to bypass the peer CLI sanity checks
 	requiredPeerAddresses := flagCount("--peerAddresses", cmd.Args)
 	for i := 0; i < requiredPeerAddresses; i++ {
 		cmd.Args = append(cmd.Args, "--tlsRootCertFiles")
 		cmd.Args = append(cmd.Args, n.CACertsBundlePath())
 	}
+
+	// If there is --peerAddress, add --tlsRootCertFile parameter
+	requiredPeerAddress := flagCount("--peerAddress", cmd.Args)
+	if requiredPeerAddress > 0 {
+		cmd.Args = append(cmd.Args, "--tlsRootCertFile")
+		cmd.Args = append(cmd.Args, n.CACertsBundlePath())
+	}
 	return cmd
+}
+
+func connectsToOrderer(c Command) bool {
+	for _, arg := range c.Args() {
+		if arg == "--orderer" {
+			return true
+		}
+	}
+	return false
+}
+
+func clientAuthEnabled(c Command) bool {
+	for _, arg := range c.Args() {
+		if arg == "--clientauth" {
+			return true
+		}
+	}
+	return false
 }
 
 func flagCount(flag string, args []string) int {
@@ -1212,6 +1485,52 @@ func (n *Network) PeerUserSession(p *Peer, user string, command Command) (*gexec
 		fmt.Sprintf("CORE_PEER_MSPCONFIGPATH=%s", n.PeerUserMSPDir(p, user)),
 	)
 	return n.StartSession(cmd, command.SessionName())
+}
+
+// PeerClientConn returns a grpc.ClientConn configured to connect to the
+// provided peer. This connection can be used to create clients for the peer
+// services. The client connection should be closed when the tests are done
+// using it.
+func (n *Network) PeerClientConn(p *Peer) *grpc.ClientConn {
+	return n.newClientConn(
+		n.PeerAddress(p, ListenPort),
+		filepath.Join(n.PeerLocalTLSDir(p), "ca.crt"),
+	)
+}
+
+// OrdererClientConn returns a grpc.ClientConn configured to connect to the
+// provided orderer. This connection can be used to create clients for the
+// orderer services. The client connection should be closed when the tests are
+// done using it.
+func (n *Network) OrdererClientConn(o *Orderer) *grpc.ClientConn {
+	return n.newClientConn(
+		n.OrdererAddress(o, ListenPort),
+		filepath.Join(n.OrdererLocalTLSDir(o), "ca.crt"),
+	)
+}
+
+func (n *Network) newClientConn(address, ca string) *grpc.ClientConn {
+	fingerprint := "grpc::" + address + "::" + ca
+	if d := n.throttleDuration(fingerprint); d > 0 {
+		time.Sleep(d)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	creds, err := credentials.NewClientTLSFromFile(ca, "")
+	Expect(err).NotTo(HaveOccurred())
+
+	conn, err := grpc.DialContext(
+		ctx,
+		address,
+		grpc.WithBlock(),
+		grpc.FailOnNonTempDialError(true),
+		grpc.WithTransportCredentials(creds),
+	)
+	Expect(err).NotTo(HaveOccurred())
+
+	return conn
 }
 
 // IdemixUserSession starts a gexec.Session as a idemix user for the provided peer
@@ -1263,31 +1582,6 @@ func (n *Network) DiscoveredPeer(p *Peer, chaincodes ...string) DiscoveredPeer {
 		Endpoint:   fmt.Sprintf("127.0.0.1:%d", n.PeerPort(p, ListenPort)),
 		Identity:   string(peerCert),
 		Chaincodes: chaincodes,
-	}
-}
-
-func (n *Network) DiscoveredPeerMatcher(p *Peer, chaincodes ...string) types.GomegaMatcher {
-	peerCert, err := ioutil.ReadFile(n.PeerCert(p))
-	Expect(err).NotTo(HaveOccurred())
-
-	return MatchAllFields(Fields{
-		"MSPID":      Equal(n.Organization(p.Organization).MSPID),
-		"Endpoint":   Equal(fmt.Sprintf("127.0.0.1:%d", n.PeerPort(p, ListenPort))),
-		"Identity":   Equal(string(peerCert)),
-		"Chaincodes": containElements(chaincodes...),
-	})
-}
-
-// containElements succeeds if a slice contains the passed in elements.
-func containElements(elements ...string) types.GomegaMatcher {
-	ms := make([]types.GomegaMatcher, 0, len(elements))
-	for _, element := range elements {
-		ms = append(ms, &matchers.ContainElementMatcher{
-			Element: element,
-		})
-	}
-	return &matchers.AndMatcher{
-		Matchers: ms,
 	}
 }
 
@@ -1406,7 +1700,7 @@ func (n *Network) AnchorsInOrg(orgName string) []*Peer {
 	return anchors
 }
 
-// OrderersInOrg returns all Orderer instances owned by the named organaiztion.
+// OrderersInOrg returns all Orderer instances owned by the named organization.
 func (n *Network) OrderersInOrg(orgName string) []*Orderer {
 	orderers := []*Orderer{}
 	for _, o := range n.Orderers {
@@ -1465,8 +1759,10 @@ func (n *Network) ReservePort() uint16 {
 	return n.StartPort - 1
 }
 
-type PortName string
-type Ports map[PortName]uint16
+type (
+	PortName string
+	Ports    map[PortName]uint16
+)
 
 const (
 	ChaincodePort  PortName = "Chaincode"
@@ -1476,6 +1772,7 @@ const (
 	ProfilePort    PortName = "Profile"
 	OperationsPort PortName = "Operations"
 	ClusterPort    PortName = "Cluster"
+	AdminPort      PortName = "Admin"
 )
 
 // PeerPortNames returns the list of ports that need to be reserved for a Peer.
@@ -1486,7 +1783,7 @@ func PeerPortNames() []PortName {
 // OrdererPortNames  returns the list of ports that need to be reserved for an
 // Orderer.
 func OrdererPortNames() []PortName {
-	return []PortName{ListenPort, ProfilePort, OperationsPort, ClusterPort}
+	return []PortName{ListenPort, ProfilePort, OperationsPort, ClusterPort, AdminPort}
 }
 
 // BrokerPortNames returns the list of ports that need to be reserved for a
@@ -1539,6 +1836,8 @@ func (n *Network) PeerPort(p *Peer, portName PortName) uint16 {
 }
 
 func (n *Network) nextColor() string {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
 	color := n.colorIndex%14 + 31
 	if color > 37 {
 		color = color + 90 - 37
@@ -1551,6 +1850,10 @@ func (n *Network) nextColor() string {
 // StartSession executes a command session. This should be used to launch
 // command line tools that are expected to run to completion.
 func (n *Network) StartSession(cmd *exec.Cmd, name string) (*gexec.Session, error) {
+	if d := n.throttleDuration(commandFingerprint(cmd)); d > 0 {
+		time.Sleep(d)
+	}
+
 	ansiColorCode := n.nextColor()
 	fmt.Fprintf(
 		ginkgo.GinkgoWriter,
@@ -1573,6 +1876,62 @@ func (n *Network) StartSession(cmd *exec.Cmd, name string) (*gexec.Session, erro
 	)
 }
 
+// commandFingerprint creates a string containing the program, args, and environment
+// of an exec.Cmd. This fingerprint is used to identify repeated calls to the
+// same command for throttling.
+func commandFingerprint(cmd *exec.Cmd) string {
+	buf := bytes.NewBuffer(nil)
+	_, err := buf.WriteString(cmd.Dir)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = buf.WriteString(cmd.Path)
+	Expect(err).NotTo(HaveOccurred())
+
+	// sort the environment since it's not positional
+	env := append([]string(nil), cmd.Env...)
+	sort.Strings(env)
+	for _, e := range env {
+		_, err := buf.WriteString(e)
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	// grab the args but ignore references to temporary files
+	for _, arg := range cmd.Args {
+		if strings.HasPrefix(arg, os.TempDir()) {
+			continue
+		}
+		_, err := buf.WriteString(arg)
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	return buf.String()
+}
+
+// throttleDuration returns the time to wait before performing some operation
+// representted by the fingerprint.
+//
+// The duration is determined by looking at when the fingerprinted operation
+// was last executed by the network. If the time between now and the last
+// execution was less than SessionCreateInterval, the difference between now
+// and (execution + SessionCreateInterval) is returned. If more than
+// SessionCreateInterval has elapsed since the last command execution, a
+// duration of 0 is returned.
+func (n *Network) throttleDuration(fingerprint string) time.Duration {
+	now := time.Now()
+	n.mutex.Lock()
+	last := n.lastExecuted[fingerprint]
+	n.lastExecuted[fingerprint] = now
+	n.mutex.Unlock()
+
+	if diff := last.Add(n.SessionCreateInterval).Sub(now); diff > 0 {
+		return diff
+	}
+
+	return 0
+}
+
+// GenerateCryptoConfig creates the `crypto-config.yaml` configuration file
+// provided to `cryptogen` when running Bootstrap. The path to the generated
+// file can be obtained from CryptoConfigPath.
 func (n *Network) GenerateCryptoConfig() {
 	crypto, err := os.Create(n.CryptoConfigPath())
 	Expect(err).NotTo(HaveOccurred())
@@ -1586,6 +1945,9 @@ func (n *Network) GenerateCryptoConfig() {
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// GenerateConfigTxConfig creates the `configtx.yaml` configuration file
+// provided to `configtxgen` when running Bootstrap. The path to the generated
+// file can be obtained from ConfigTxConfigPath.
 func (n *Network) GenerateConfigTxConfig() {
 	config, err := os.Create(n.ConfigTxConfigPath())
 	Expect(err).NotTo(HaveOccurred())
@@ -1599,8 +1961,11 @@ func (n *Network) GenerateConfigTxConfig() {
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// GenerateOrdererConfig creates the `orderer.yaml` configuration file for the
+// specified orderer. The path to the generated file can be obtained from
+// OrdererConfigPath.
 func (n *Network) GenerateOrdererConfig(o *Orderer) {
-	err := os.MkdirAll(n.OrdererDir(o), 0755)
+	err := os.MkdirAll(n.OrdererDir(o), 0o755)
 	Expect(err).NotTo(HaveOccurred())
 
 	orderer, err := os.Create(n.OrdererConfigPath(o))
@@ -1619,8 +1984,11 @@ func (n *Network) GenerateOrdererConfig(o *Orderer) {
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// GenerateCoreConfig creates the `core.yaml` configuration file for the
+// specified peer. The path to the generated file can be obtained from
+// PeerConfigPath.
 func (n *Network) GenerateCoreConfig(p *Peer) {
-	err := os.MkdirAll(n.PeerDir(p), 0755)
+	err := os.MkdirAll(n.PeerDir(p), 0o755)
 	Expect(err).NotTo(HaveOccurred())
 
 	core, err := os.Create(n.PeerConfigPath(p))

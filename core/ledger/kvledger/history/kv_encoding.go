@@ -1,5 +1,6 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
+
 SPDX-License-Identifier: Apache-2.0
 */
 
@@ -12,14 +13,15 @@ import (
 	"github.com/pkg/errors"
 )
 
-type dataKey []byte
-type rangeScan struct {
-	startKey, endKey []byte
-}
+type (
+	dataKey   []byte
+	rangeScan struct {
+		startKey, endKey []byte
+	}
+)
 
 var (
 	compositeKeySep = []byte{0x00} // used as a separator between different components of dataKey
-	dataKeyPrefix   = []byte{'d'}  // prefix added to dataKeys
 	savePointKey    = []byte{'s'}  // a single key in db for persisting savepoint
 	emptyValue      = []byte{}     // used to store as value for keys where only key needs to be stored (e.g., dataKeys)
 )

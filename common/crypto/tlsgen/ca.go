@@ -29,6 +29,8 @@ type CA interface {
 	// CertBytes returns the certificate of the CA in PEM encoding
 	CertBytes() []byte
 
+	NewIntermediateCA() (CA, error)
+
 	// newCertKeyPair returns a certificate and private key pair and nil,
 	// or nil, error in case of failure
 	// The certificate is signed by the CA and is used for TLS client authentication
@@ -38,7 +40,10 @@ type CA interface {
 	// with a given custom SAN.
 	// The certificate is signed by the CA.
 	// Returns nil, error in case of failure
-	NewServerCertKeyPair(host string) (*CertKeyPair, error)
+	NewServerCertKeyPair(hosts ...string) (*CertKeyPair, error)
+
+	// Signer returns a crypto.Signer that signs with the CA's private key.
+	Signer() crypto.Signer
 }
 
 type ca struct {
@@ -48,11 +53,21 @@ type ca struct {
 func NewCA() (CA, error) {
 	c := &ca{}
 	var err error
-	c.caCert, err = newCertKeyPair(true, false, "", nil, nil)
+	c.caCert, err = newCertKeyPair(true, false, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+func (c *ca) NewIntermediateCA() (CA, error) {
+	intermediateCA := &ca{}
+	var err error
+	intermediateCA.caCert, err = newCertKeyPair(true, false, c.caCert.Signer, c.caCert.TLSCert)
+	if err != nil {
+		return nil, err
+	}
+	return intermediateCA, nil
 }
 
 // CertBytes returns the certificate of the CA in PEM encoding
@@ -64,16 +79,21 @@ func (c *ca) CertBytes() []byte {
 // or nil, error in case of failure
 // The certificate is signed by the CA and is used as a client TLS certificate
 func (c *ca) NewClientCertKeyPair() (*CertKeyPair, error) {
-	return newCertKeyPair(false, false, "", c.caCert.Signer, c.caCert.TLSCert)
+	return newCertKeyPair(false, false, c.caCert.Signer, c.caCert.TLSCert)
 }
 
 // newServerCertKeyPair returns a certificate and private key pair and nil,
 // or nil, error in case of failure
 // The certificate is signed by the CA and is used as a server TLS certificate
-func (c *ca) NewServerCertKeyPair(host string) (*CertKeyPair, error) {
-	keypair, err := newCertKeyPair(false, true, host, c.caCert.Signer, c.caCert.TLSCert)
+func (c *ca) NewServerCertKeyPair(hosts ...string) (*CertKeyPair, error) {
+	keypair, err := newCertKeyPair(false, true, c.caCert.Signer, c.caCert.TLSCert, hosts...)
 	if err != nil {
 		return nil, err
 	}
 	return keypair, nil
+}
+
+// Signer returns a crypto.Signer that signs with the CA's private key.
+func (c *ca) Signer() crypto.Signer {
+	return c.caCert.Signer
 }

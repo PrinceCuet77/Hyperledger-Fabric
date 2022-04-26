@@ -16,14 +16,14 @@ import (
 	"github.com/hyperledger/fabric/bccsp/sw"
 	"github.com/hyperledger/fabric/common/configtx/test"
 	"github.com/hyperledger/fabric/common/crypto"
+	"github.com/hyperledger/fabric/internal/pkg/txflags"
 
 	"github.com/hyperledger/fabric/common/ledger/testutil/fakes"
-	lutils "github.com/hyperledger/fabric/core/ledger/util"
 	"github.com/hyperledger/fabric/msp"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	msptesttools "github.com/hyperledger/fabric/msp/mgmt/testtools"
 	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var signer msp.SigningIdentity
@@ -44,7 +44,7 @@ func init() {
 	}
 }
 
-//BlockGenerator generates a series of blocks for testing
+// BlockGenerator generates a series of blocks for testing
 type BlockGenerator struct {
 	blockNum     uint64
 	previousHash []byte
@@ -56,6 +56,7 @@ type TxDetails struct {
 	TxID                            string
 	ChaincodeName, ChaincodeVersion string
 	SimulationResults               []byte
+	ChaincodeEvents                 []byte
 	Type                            common.HeaderType
 }
 
@@ -74,8 +75,8 @@ type signingIdentity interface {
 // NewBlockGenerator instantiates new BlockGenerator for testing
 func NewBlockGenerator(t *testing.T, ledgerID string, signTxs bool) (*BlockGenerator, *common.Block) {
 	gb, err := test.MakeGenesisBlock(ledgerID)
-	assert.NoError(t, err)
-	gb.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = lutils.NewTxValidationFlagsSetValue(len(gb.Data.Data), pb.TxValidationCode_VALID)
+	require.NoError(t, err)
+	gb.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = txflags.NewWithValues(len(gb.Data.Data), pb.TxValidationCode_VALID)
 	return &BlockGenerator{1, protoutil.BlockHeaderHash(gb.GetHeader()), signTxs, t}, gb
 }
 
@@ -114,7 +115,7 @@ func (bg *BlockGenerator) NextTestBlocks(numBlocks int) []*common.Block {
 	numTx := 10
 	for i := 0; i < numBlocks; i++ {
 		block := bg.NextTestBlock(numTx, 100)
-		block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = lutils.NewTxValidationFlagsSetValue(numTx, pb.TxValidationCode_VALID)
+		block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = txflags.NewWithValues(numTx, pb.TxValidationCode_VALID)
 		blocks = append(blocks, block)
 	}
 	return blocks
@@ -171,7 +172,7 @@ func ConstructTransactionFromTxDetails(txDetails *TxDetails, sign bool) (*common
 			nil,
 			txDetails.SimulationResults,
 			txDetails.TxID,
-			nil,
+			txDetails.ChaincodeEvents,
 			nil,
 			txDetails.Type,
 		)
@@ -182,7 +183,7 @@ func ConstructTransactionFromTxDetails(txDetails *TxDetails, sign bool) (*common
 			nil,
 			txDetails.SimulationResults,
 			txDetails.TxID,
-			nil,
+			txDetails.ChaincodeEvents,
 			nil,
 			txDetails.Type,
 		)
@@ -266,7 +267,7 @@ func ConstructBlock(
 	return NewBlock(envs, blockNum, previousHash)
 }
 
-//ConstructTestBlock constructs a single block with random contents
+// ConstructTestBlock constructs a single block with random contents
 func ConstructTestBlock(t *testing.T, blockNum uint64, numTx int, txSize int) *common.Block {
 	simulationResults := [][]byte{}
 	for i := 0; i < numTx; i++ {
@@ -305,7 +306,7 @@ func NewBlock(env []*common.Envelope, blockNum uint64, previousHash []byte) *com
 	block.Header.DataHash = protoutil.BlockDataHash(block.Data)
 	protoutil.InitBlockMetadata(block)
 
-	block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = lutils.NewTxValidationFlagsSetValue(len(env), pb.TxValidationCode_VALID)
+	block.Metadata.Metadata[common.BlockMetadataIndex_TRANSACTIONS_FILTER] = txflags.NewWithValues(len(env), pb.TxValidationCode_VALID)
 
 	return block
 }
@@ -342,7 +343,6 @@ func ConstructSignedTxEnvWithDefaultSigner(
 	visibility []byte,
 	headerType common.HeaderType,
 ) (*common.Envelope, string, error) {
-
 	return ConstructSignedTxEnv(
 		chainID,
 		ccid,
@@ -367,7 +367,6 @@ func ConstructUnsignedTxEnv(
 	visibility []byte,
 	headerType common.HeaderType,
 ) (*common.Envelope, string, error) {
-
 	sigId := &fakes.SigningIdentity{}
 
 	return ConstructSignedTxEnv(
@@ -413,7 +412,6 @@ func ConstructSignedTxEnv(
 			},
 			ss,
 		)
-
 	} else {
 		// if txid is set, we should not generate a txid instead reuse the given txid
 		var nonce []byte
@@ -444,7 +442,7 @@ func ConstructSignedTxEnv(
 		prop.Payload,
 		pResponse,
 		simulationResults,
-		nil,
+		events,
 		ccid,
 		signer,
 	)
@@ -463,7 +461,7 @@ func SetTxID(t *testing.T, block *common.Block, txNum int, txID string) {
 	envelopeBytes := block.Data.Data[txNum]
 	envelope, err := protoutil.UnmarshalEnvelope(envelopeBytes)
 	if err != nil {
-		t.Fatalf("error unmarshaling envelope: %s", err)
+		t.Fatalf("error unmarshalling envelope: %s", err)
 	}
 
 	payload, err := protoutil.UnmarshalPayload(envelope.Payload)
@@ -473,7 +471,7 @@ func SetTxID(t *testing.T, block *common.Block, txNum int, txID string) {
 
 	channelHeader, err := protoutil.UnmarshalChannelHeader(payload.Header.ChannelHeader)
 	if err != nil {
-		t.Fatalf("error unmarshaling channel header: %s", err)
+		t.Fatalf("error unmarshalling channel header: %s", err)
 	}
 	channelHeader.TxId = txID
 	channelHeaderBytes, err := proto.Marshal(channelHeader)

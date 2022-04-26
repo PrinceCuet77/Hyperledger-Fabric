@@ -23,12 +23,11 @@ import (
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/hyperledger/fabric/gossip/util"
 	"github.com/hyperledger/fabric/msp"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-type secAdvMock struct {
-}
+type secAdvMock struct{}
 
 func init() {
 	util.SetupTestLogging()
@@ -138,26 +137,6 @@ func (ao *appOrgMock) AnchorPeers() []*peer.AnchorPeer {
 	return []*peer.AnchorPeer{}
 }
 
-type configMock struct {
-	orgs2AppOrgs map[string]channelconfig.ApplicationOrg
-}
-
-func (c *configMock) OrdererAddresses() []string {
-	return []string{"localhost:7050"}
-}
-
-func (*configMock) ChannelID() string {
-	return "A"
-}
-
-func (c *configMock) Organizations() map[string]channelconfig.ApplicationOrg {
-	return c.orgs2AppOrgs
-}
-
-func (*configMock) Sequence() uint64 {
-	return 0
-}
-
 func TestJoinChannelConfig(t *testing.T) {
 	// Scenarios: The channel we're joining has a single org - Org0
 	// but our org ID is actually Org0MSP in the negative path
@@ -168,16 +147,19 @@ func TestJoinChannelConfig(t *testing.T) {
 	g1SvcMock.On("JoinChan", mock.Anything, mock.Anything).Run(func(_ mock.Arguments) {
 		failChan <- struct{}{}
 	})
-	g1 := &GossipService{secAdv: &secAdvMock{}, peerIdentity: api.PeerIdentityType("OrgMSP0"), gossipSvc: g1SvcMock}
-	g1.updateAnchors(&configMock{
-		orgs2AppOrgs: map[string]channelconfig.ApplicationOrg{
+	anchorPeerTracker := &anchorPeerTracker{allEndpoints: map[string]map[string]struct{}{}}
+	g1 := &GossipService{secAdv: &secAdvMock{}, peerIdentity: api.PeerIdentityType("OrgMSP0"), gossipSvc: g1SvcMock, anchorPeerTracker: anchorPeerTracker}
+	g1.updateAnchors(ConfigUpdate{
+		ChannelID:        "A",
+		OrdererAddresses: []string{"localhost:7050"},
+		Organizations: map[string]channelconfig.ApplicationOrg{
 			"Org0": &appOrgMock{id: "Org0"},
 		},
 	})
 	select {
 	case <-time.After(time.Second):
 	case <-failChan:
-		assert.Fail(t, "Joined a badly configured channel")
+		require.Fail(t, "Joined a badly configured channel")
 	}
 
 	succChan := make(chan struct{}, 1)
@@ -185,17 +167,18 @@ func TestJoinChannelConfig(t *testing.T) {
 	g2SvcMock.On("JoinChan", mock.Anything, mock.Anything).Run(func(_ mock.Arguments) {
 		succChan <- struct{}{}
 	})
-	g2 := &GossipService{secAdv: &secAdvMock{}, peerIdentity: api.PeerIdentityType("Org0"), gossipSvc: g2SvcMock}
-	g2.updateAnchors(&configMock{
-		orgs2AppOrgs: map[string]channelconfig.ApplicationOrg{
+	g2 := &GossipService{secAdv: &secAdvMock{}, peerIdentity: api.PeerIdentityType("Org0"), gossipSvc: g2SvcMock, anchorPeerTracker: anchorPeerTracker}
+	g2.updateAnchors(ConfigUpdate{
+		ChannelID:        "A",
+		OrdererAddresses: []string{"localhost:7050"},
+		Organizations: map[string]channelconfig.ApplicationOrg{
 			"Org0": &appOrgMock{id: "Org0"},
 		},
 	})
 	select {
 	case <-time.After(time.Second):
-		assert.Fail(t, "Didn't join a channel (should have done so within the time period)")
+		require.Fail(t, "Didn't join a channel (should have done so within the time period)")
 	case <-succChan:
-
 	}
 }
 
@@ -211,23 +194,26 @@ func TestJoinChannelNoAnchorPeers(t *testing.T) {
 		defer joinChanCalled.Done()
 		jcm := args.Get(0).(api.JoinChannelMessage)
 		channel := args.Get(1).(common.ChannelID)
-		assert.Len(t, jcm.Members(), 2)
-		assert.Contains(t, jcm.Members(), api.OrgIdentityType("Org0"))
-		assert.Contains(t, jcm.Members(), api.OrgIdentityType("Org1"))
-		assert.Equal(t, "A", string(channel))
+		require.Len(t, jcm.Members(), 2)
+		require.Contains(t, jcm.Members(), api.OrgIdentityType("Org0"))
+		require.Contains(t, jcm.Members(), api.OrgIdentityType("Org1"))
+		require.Equal(t, "A", string(channel))
 	})
 
-	g := &GossipService{secAdv: &secAdvMock{}, peerIdentity: api.PeerIdentityType("Org0"), gossipSvc: gMock}
+	anchorPeerTracker := &anchorPeerTracker{allEndpoints: map[string]map[string]struct{}{}}
+	g := &GossipService{secAdv: &secAdvMock{}, peerIdentity: api.PeerIdentityType("Org0"), gossipSvc: gMock, anchorPeerTracker: anchorPeerTracker}
 
 	appOrg0 := &appOrgMock{id: "Org0"}
 	appOrg1 := &appOrgMock{id: "Org1"}
 
 	// Make sure the ApplicationOrgs really have no anchor peers
-	assert.Empty(t, appOrg0.AnchorPeers())
-	assert.Empty(t, appOrg1.AnchorPeers())
+	require.Empty(t, appOrg0.AnchorPeers())
+	require.Empty(t, appOrg1.AnchorPeers())
 
-	g.updateAnchors(&configMock{
-		orgs2AppOrgs: map[string]channelconfig.ApplicationOrg{
+	g.updateAnchors(ConfigUpdate{
+		ChannelID:        "A",
+		OrdererAddresses: []string{"localhost:7050"},
+		Organizations: map[string]channelconfig.ApplicationOrg{
 			"Org0": appOrg0,
 			"Org1": appOrg1,
 		},

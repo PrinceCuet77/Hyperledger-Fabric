@@ -17,7 +17,7 @@ import (
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/integration/nwo/fabricconfig"
-	"github.com/hyperledger/fabric/integration/runner"
+	"github.com/hyperledger/fabric/integration/nwo/runner"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -72,7 +72,7 @@ var _ = Describe("CouchDB indexes", func() {
 		network.ExternalBuilders = append(network.ExternalBuilders, fabricconfig.ExternalBuilder{
 			Path:                 filepath.Join(cwd, "..", "externalbuilders", "golang"),
 			Name:                 "external-golang",
-			EnvironmentWhitelist: []string{"GOPATH", "GOCACHE", "GOPROXY", "HOME", "PATH"},
+			PropagateEnvironment: []string{"GOPATH", "GOCACHE", "GOPROXY", "HOME", "PATH"},
 		})
 
 		network.GenerateConfigTree()
@@ -357,9 +357,11 @@ func verifyColorIndexPresence(n *nwo.Network, channel string, orderer *nwo.Order
 func verifyIndexPresence(n *nwo.Network, channel string, orderer *nwo.Orderer, peer *nwo.Peer, ccName string, expectIndexPresent bool, indexQuery string) {
 	By("invoking queryMarbles function with a user constructed query that requires an index due to a sort")
 	sess, err := n.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
-		ChannelID: channel,
-		Name:      ccName,
-		Ctor:      prepareChaincodeInvokeArgs("queryMarbles", indexQuery),
+		ChannelID:     channel,
+		Name:          ccName,
+		Ctor:          prepareChaincodeInvokeArgs("queryMarbles", indexQuery),
+		Orderer:       n.OrdererAddress(orderer, nwo.ListenPort),
+		PeerAddresses: []string{n.PeerAddress(peer, nwo.ListenPort)},
 	})
 	Expect(err).NotTo(HaveOccurred())
 	if expectIndexPresent {

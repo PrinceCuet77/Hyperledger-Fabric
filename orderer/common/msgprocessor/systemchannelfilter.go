@@ -90,7 +90,7 @@ func (scf *SystemChainFilter) Apply(env *cb.Envelope) error {
 	configTx := &cb.Envelope{}
 	err = proto.Unmarshal(msgData.Data, configTx)
 	if err != nil {
-		return errors.Errorf("payload data error unmarshaling to envelope: %s", err)
+		return errors.Errorf("payload data error unmarshalling to envelope: %s", err)
 	}
 
 	return scf.authorizeAndInspect(configTx)
@@ -100,7 +100,7 @@ func (scf *SystemChainFilter) authorizeAndInspect(configTx *cb.Envelope) error {
 	payload := &cb.Payload{}
 	err := proto.Unmarshal(configTx.Payload, payload)
 	if err != nil {
-		return errors.Errorf("error unmarshaling wrapped configtx envelope payload: %s", err)
+		return errors.Errorf("error unmarshalling wrapped configtx envelope payload: %s", err)
 	}
 
 	if payload.Header == nil {
@@ -109,7 +109,7 @@ func (scf *SystemChainFilter) authorizeAndInspect(configTx *cb.Envelope) error {
 
 	chdr, err := protoutil.UnmarshalChannelHeader(payload.Header.ChannelHeader)
 	if err != nil {
-		return errors.Errorf("error unmarshaling wrapped configtx envelope channel header: %s", err)
+		return errors.Errorf("error unmarshalling wrapped configtx envelope channel header: %s", err)
 	}
 
 	if chdr.Type != int32(cb.HeaderType_CONFIG) {
@@ -151,23 +151,21 @@ func (scf *SystemChainFilter) authorizeAndInspect(configTx *cb.Envelope) error {
 		return errors.Wrap(err, "new bundle invalid")
 	}
 
-	oc, ok := bundle.OrdererConfig()
+	ordererConfig, ok := bundle.OrdererConfig()
 	if !ok {
 		return errors.New("config is missing orderer group")
 	}
-	newMetadata := oc.ConsensusMetadata()
 
 	oldOrdererConfig, ok := scf.support.OrdererConfig()
 	if !ok {
 		logger.Panic("old config is missing orderer group")
 	}
-	oldMetadata := oldOrdererConfig.ConsensusMetadata()
 
-	if err = scf.validator.ValidateConsensusMetadata(oldMetadata, newMetadata, true); err != nil {
+	if err = scf.validator.ValidateConsensusMetadata(oldOrdererConfig, ordererConfig, true); err != nil {
 		return errors.Wrap(err, "consensus metadata update for channel creation is invalid")
 	}
 
-	if err = oc.Capabilities().Supported(); err != nil {
+	if err = ordererConfig.Capabilities().Supported(); err != nil {
 		return errors.Wrap(err, "config update is not compatible")
 	}
 

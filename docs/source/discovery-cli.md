@@ -13,7 +13,7 @@ The `discover` command has the following subcommands:
 
 And the usage of the command is shown below:
 
-~~~~ {.sourceCode .shell}
+```
 usage: discover [<flags>] <command> [<args> ...]
 
 Command line client for fabric discovery service
@@ -43,17 +43,16 @@ Commands:
 
   saveConfig
     Save the config passed by flags into the file specified by --configFile
-~~~~
+```
 
 Configuring external endpoints
 ------------------------------
 
-Currently, to see peers in service discovery they need to have `EXTERNAL_ENDPOINT`
-to be configured for them. Otherwise, Fabric assumes the peer should not be
+For a peer to be exposed to service discovery, they need to have `peer.gossip.externalEndpoint`
+configured in `core.yaml`. Otherwise, Fabric assumes the peer should not be
 disclosed.
 
-To define these endpoints, you need to specify them in the `core.yaml` of the
-peer, replacing the sample endpoint below with the ones of your peer.
+The `core.yaml` value can also be overridden using an environment variable.
 
 ```
 CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer1.org1.example.com:8051
@@ -65,13 +64,13 @@ Persisting configuration
 To persist the configuration, a config file name should be supplied via
 the flag `--configFile`, along with the command `saveConfig`:
 
-~~~~ {.sourceCode .shell}
+```
 discover --configFile conf.yaml --peerTLSCA tls/ca.crt --userKey msp/keystore/ea4f6a38ac7057b6fa9502c2f5f39f182e320f71f667749100fe7dd94c23ce43_sk --userCert msp/signcerts/User1\@org1.example.com-cert.pem  --MSP Org1MSP saveConfig
-~~~~
+```
 
 By executing the above command, configuration file would be created:
 
-~~~~ {.sourceCode .YAML}
+```yaml
 $ cat conf.yaml
 version: 0
 tlsconfig:
@@ -83,16 +82,20 @@ signerconfig:
   mspid: Org1MSP
   identitypath: /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/User1@org1.example.com-cert.pem
   keypath: /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore/ea4f6a38ac7057b6fa9502c2f5f39f182e320f71f667749100fe7dd94c23ce43_sk
-~~~~
+```
 
 When the peer runs with TLS enabled, the discovery service on the peer
-requires the client to connect to it with mutual TLS, which means it
-needs to supply a TLS certificate. The peer is configured by default to
-request (but not to verify) client TLS certificates, so supplying a TLS
-certificate isn't needed (unless the peer's `tls.clientAuthRequired` is
-set to `true`).
+requires the client to connect to it with mutual TLS, even if the
+peer has not set `tls.clientAuthRequired` to `true`.
 
-When the discovery CLI's config file has a certificate path for
+When `tls.clientAuthRequired` is set to `false`, the peer will still
+request (and verify if given, but not require) client TLS certificates.
+Therefore if the client does not pass a TLS certificate,
+TLS connections can be established to the peer but will be rejected in the
+peer's discovery layer. To that end, the discovery CLI provides a
+TLS certificate on its own if the user doesn't explicitly set one.
+
+More concretely, when the discovery CLI's config file has a certificate path for
 `peercacertpath`, but the `certpath` and `keypath` aren't configured as
 in the above - the discovery CLI generates a self-signed TLS certificate
 and uses this to connect to the peer.
@@ -124,7 +127,7 @@ Let's go over them and see how they should be invoked and parsed:
 Peer membership query:
 ----------------------
 
-~~~~ {.sourceCode .shell}
+```
 $ discover --configFile conf.yaml peers --channel mychannel  --server peer0.org1.example.com:7051
 [
 	{
@@ -162,7 +165,7 @@ $ discover --configFile conf.yaml peers --channel mychannel  --server peer0.org1
 		"Chaincodes": null
 	}
 ]
-~~~~
+```
 
 As seen, this command outputs a JSON containing membership information
 about all the peers in the channel that the peer queried possesses.
@@ -170,7 +173,7 @@ about all the peers in the channel that the peer queried possesses.
 The `Identity` that is returned is the enrollment certificate of the
 peer, and it can be parsed with a combination of `jq` and `openssl`:
 
-~~~~ {.sourceCode .shell}
+```
 $ discover --configFile conf.yaml peers --channel mychannel  --server peer0.org1.example.com:7051  | jq .[0].Identity | sed "s/\\\n/\n/g" | sed "s/\"//g"  | openssl x509 -text -noout
 Certificate:
     Data:
@@ -207,7 +210,7 @@ Certificate:
          a1:3d:65:5c:7b:79:a1:7a:d1:94:50:f0:cd:db:ea:61:81:7a:
          02:20:3b:40:5b:60:51:3c:f8:0f:9b:fc:ae:fc:21:fd:c8:36:
          a3:18:39:58:20:72:3d:1a:43:74:30:f3:56:01:aa:26
-~~~~
+```
 
 Configuration query:
 --------------------
@@ -216,7 +219,7 @@ The configuration query returns a mapping from MSP IDs to orderer
 endpoints, as well as the `FabricMSPConfig` which can be used to verify
 all peer and orderer nodes by the SDK:
 
-~~~~ {.sourceCode .shell}
+```
 $ discover --configFile conf.yaml config --channel mychannel  --server peer0.org1.example.com:7051
 {
     "msps": {
@@ -314,12 +317,12 @@ $ discover --configFile conf.yaml config --channel mychannel  --server peer0.org
         }
     }
 }
-~~~~
+```
 
 It's important to note that the certificates here are base64 encoded,
 and thus should decoded in a manner similar to the following:
 
-~~~~ {.sourceCode .shell}
+```
 $ discover --configFile conf.yaml config --channel mychannel  --server peer0.org1.example.com:7051 | jq .msps.OrdererOrg.root_certs[0] | sed "s/\"//g" | base64 --decode | openssl x509 -text -noout
 Certificate:
     Data:
@@ -357,7 +360,7 @@ Certificate:
          d8:a0:47:7a:33:ff:30:c1:09:a6:05:ec:b0:53:53:39:c1:0e:
          02:20:6b:f4:1d:48:e0:72:e4:c2:ef:b0:84:79:d4:2e:c2:c5:
          1b:6f:e4:2f:56:35:51:18:7d:93:51:86:05:84:ce:1f
-~~~~
+```
 
 Endorsers query:
 ----------------
@@ -372,16 +375,21 @@ be supplied:
     are expected to used by the chaincode(s). To map from thechaincodes
     passed via `--chaincode` to the collections, the following syntax
     should be used: `collection=CC:Collection1,Collection2,...`.
+- The `--noPrivateReads` is used to indicate that the transaction is not expected
+    to read private data for a certain chaincode.
+    This is useful for private data "blind writes", among other things.
 
 For example, to query for a chaincode invocation that results in both
 cc1 and cc2 to be invoked, as well as writes to private data collection
 col1 by cc2, one needs to specify:
 `--chaincode=cc1 --chaincode=cc2 --collection=cc2:col1`
 
+If chaincode cc2 is not expected to read from collection `col1` then `--noPrivateReads=cc2` should be used.
+
 Below is the output of an endorsers query for chaincode **mycc** when
 the endorsement policy is `AND('Org1.peer', 'Org2.peer')`:
 
-~~~~ {.sourceCode .shell}
+```
 $ discover --configFile conf.yaml endorsers --channel mychannel  --server peer0.org1.example.com:7051 --chaincode mycc
 [
     {
@@ -420,7 +428,7 @@ $ discover --configFile conf.yaml endorsers --channel mychannel  --server peer0.
         ]
     }
 ]
-~~~~
+```
 
 Not using a configuration file
 ------------------------------
@@ -430,7 +438,7 @@ configuration file, and just passing all needed configuration as
 commandline flags. The following is an example of a local peer membership
 query which loads administrator credentials:
 
-~~~~ {.sourceCode .shell}
+```
 $ discover --peerTLSCA tls/ca.crt --userKey msp/keystore/cf31339d09e8311ac9ca5ed4e27a104a7f82f1e5904b3296a170ba4725ffde0d_sk --userCert msp/signcerts/Admin\@org1.example.com-cert.pem --MSP Org1MSP --tlsCert tls/client.crt --tlsKey tls/client.key peers --server peer0.org1.example.com:7051
 [
 	{
@@ -454,4 +462,4 @@ $ discover --peerTLSCA tls/ca.crt --userKey msp/keystore/cf31339d09e8311ac9ca5ed
 		"Identity": "-----BEGIN CERTIFICATE-----\nMIICKDCCAc+gAwIBAgIRALnNJzplCrYy4Y8CjZtqL7AwCgYIKoZIzj0EAwIwczEL\nMAkGA1UEBhMCVVMxEzARBgNVBAgTCkNhbGlmb3JuaWExFjAUBgNVBAcTDVNhbiBG\ncmFuY2lzY28xGTAXBgNVBAoTEG9yZzIuZXhhbXBsZS5jb20xHDAaBgNVBAMTE2Nh\nLm9yZzIuZXhhbXBsZS5jb20wHhcNMTgwNjE3MTM0NTIxWhcNMjgwNjE0MTM0NTIx\nWjBqMQswCQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTEWMBQGA1UEBxMN\nU2FuIEZyYW5jaXNjbzENMAsGA1UECxMEcGVlcjEfMB0GA1UEAxMWcGVlcjEub3Jn\nMi5leGFtcGxlLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNDopAkHlDdu\nq10HEkdxvdpkbs7EJyqv1clvCt/YMn1hS6sM+bFDgkJKalG7s9Hg3URF0aGpy51R\nU+4F9Muo+XajTTBLMA4GA1UdDwEB/wQEAwIHgDAMBgNVHRMBAf8EAjAAMCsGA1Ud\nIwQkMCKAIFZMuZfUtY6n2iyxaVr3rl+x5lU0CdG9x7KAeYydQGTMMAoGCCqGSM49\nBAMCA0cAMEQCIAR4fBmIBKW2jp0HbbabVepNtl1c7+6++riIrEBnoyIVAiBBvWmI\nyG02c5hu4wPAuVQMB7AU6tGSeYaWSAAo/ExunQ==\n-----END CERTIFICATE-----\n",
 	}
 ]
-~~~~
+```

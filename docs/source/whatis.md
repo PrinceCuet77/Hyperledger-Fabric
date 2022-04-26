@@ -299,7 +299,7 @@ requirements.
 Performance of a blockchain platform can be affected by many variables such as
 transaction size, block size, network size, as well as limits of the hardware,
 etc. The Hyperledger Fabric [Performance and Scale working group](https://wiki.hyperledger.org/display/PSWG/Performance+and+Scale+Working+Group)
-currently works on a benchmarking framework called [Hyperledger Caliper](https://wiki.hyperledger.org/projects/caliper).
+currently works on a benchmarking framework called [Hyperledger Caliper](https://wiki.hyperledger.org/display/caliper).
 
 Several research papers have been published studying and testing the performance
 capabilities of Hyperledger Fabric. The latest [scaled Fabric to 20,000 transactions per second](https://arxiv.org/abs/1901.00910).
@@ -323,7 +323,7 @@ platforms.
 ## Acknowledgement
 
 The preceding is derived from the peer reviewed
-["Hyperledger Fabric: A Distributed Operating System for Permissioned Blockchains"](https://arxiv.org/abs/1801.10228v2) - Elli Androulaki, Artem
+["Hyperledger Fabric: A Distributed Operating System for Permissioned Blockchains"](https://dl.acm.org/doi/10.1145/3190508.3190538) - Elli Androulaki, Artem
 Barger, Vita Bortnikov, Christian Cachin, Konstantinos Christidis, Angelo De
 Caro, David Enyeart, Christopher Ferris, Gennady Laventman, Yacov Manevich,
 Srinivasan Muralidharan, Chet Murthy, Binh Nguyen, Manish Sethi, Gari Singh,

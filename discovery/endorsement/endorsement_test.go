@@ -10,6 +10,9 @@ import (
 	"fmt"
 	"testing"
 
+	common2 "github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric/common/policydsl"
+
 	"github.com/golang/protobuf/proto"
 	discoveryprotos "github.com/hyperledger/fabric-protos-go/discovery"
 	"github.com/hyperledger/fabric-protos-go/gossip"
@@ -23,8 +26,8 @@ import (
 	"github.com/hyperledger/fabric/gossip/discovery"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 var pkiID2MSPID = map[string]string{
@@ -52,8 +55,8 @@ func TestPeersForEndorsement(t *testing.T) {
 		for _, endorsers := range desc.EndorsersByGroups {
 			for _, p := range endorsers.Peers {
 				res[string(p.Identity)] = struct{}{}
-				assert.Equal(t, string(p.Identity), string(p.MembershipInfo.Payload))
-				assert.Equal(t, string(p.Identity), string(p.StateInfo.Payload))
+				require.Equal(t, string(p.Identity), string(p.MembershipInfo.Payload))
+				require.Equal(t, string(p.Identity), string(p.StateInfo.Payload))
 			}
 		}
 		return res
@@ -97,15 +100,15 @@ func TestPeersForEndorsement(t *testing.T) {
 			Version: "1.0",
 		}).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: ccWithMissingPolicy,
 				},
 			},
 		})
-		assert.Nil(t, desc)
-		assert.Equal(t, "policy not found", err.Error())
+		require.Nil(t, desc)
+		require.Equal(t, "policy not found", err.Error())
 	})
 
 	t.Run("NotEnoughPeers", func(t *testing.T) {
@@ -121,15 +124,15 @@ func TestPeersForEndorsement(t *testing.T) {
 		mf.On("Metadata").Return(&chaincode.Metadata{Name: cc, Version: "1.0"}).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
 		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: cc,
 				},
 			},
 		})
-		assert.Nil(t, desc)
-		assert.Equal(t, err.Error(), "cannot satisfy any principal combination")
+		require.Nil(t, desc)
+		require.Equal(t, err.Error(), "no peer combination can satisfy the endorsement policy")
 	})
 
 	t.Run("DisjointViews", func(t *testing.T) {
@@ -148,18 +151,18 @@ func TestPeersForEndorsement(t *testing.T) {
 		}).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
 		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: cc,
 				},
 			},
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, desc)
-		assert.Len(t, desc.Layouts, 1)
-		assert.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
-		assert.Equal(t, map[string]struct{}{
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
 			peerIdentityString("p0"): {},
 			peerIdentityString("p6"): {},
 		}, extractPeers(desc))
@@ -181,19 +184,19 @@ func TestPeersForEndorsement(t *testing.T) {
 		}).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
 		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: cc,
 				},
 			},
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, desc)
-		assert.Len(t, desc.Layouts, 2)
-		assert.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
-		assert.Len(t, desc.Layouts[1].QuantitiesByGroup, 1)
-		assert.Equal(t, map[string]struct{}{
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 2)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Len(t, desc.Layouts[1].QuantitiesByGroup, 1)
+		require.Equal(t, map[string]struct{}{
 			peerIdentityString("p0"):  {},
 			peerIdentityString("p6"):  {},
 			peerIdentityString("p12"): {},
@@ -214,15 +217,15 @@ func TestPeersForEndorsement(t *testing.T) {
 		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
 		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: cc,
 				},
 			},
 		})
-		assert.Nil(t, desc)
-		assert.Equal(t, "cannot satisfy any principal combination", err.Error())
+		require.Nil(t, desc)
+		require.Equal(t, "required chaincodes are not installed on sufficient peers", err.Error())
 
 		// Scenario VI: Policy is found, there are enough peers to satisfy policy combinations,
 		// but some peers have the wrong chaincode version, and some don't even have it installed.
@@ -239,37 +242,33 @@ func TestPeersForEndorsement(t *testing.T) {
 			Name:    cc,
 			Version: "1.0",
 		}).Once()
-		desc, err = analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err = analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: cc,
 				},
 			},
 		})
-		assert.Nil(t, desc)
-		assert.Equal(t, "cannot satisfy any principal combination", err.Error())
+		require.Nil(t, desc)
+		require.Equal(t, "required chaincodes are not installed on sufficient peers", err.Error())
 	})
 
 	t.Run("NoChaincodeMetadataFromLedger", func(t *testing.T) {
 		// Scenario VII: Policy is found, there are enough peers to satisfy the policy,
 		// but the chaincode metadata cannot be fetched from the ledger.
-		pb := principalBuilder{}
-		policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p6")).
-			newSet().addPrincipal(peerRole("p12")).buildPolicy()
 		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
-		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
 		mf := &metadataFetcher{}
 		mf.On("Metadata").Return(nil).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: cc,
 				},
 			},
 		})
-		assert.Nil(t, desc)
-		assert.Equal(t, "No metadata was found for chaincode chaincode in channel test", err.Error())
+		require.Nil(t, desc)
+		require.Equal(t, "No metadata was found for chaincode chaincode in channel test", err.Error())
 	})
 
 	t.Run("Collections", func(t *testing.T) {
@@ -297,19 +296,19 @@ func TestPeersForEndorsement(t *testing.T) {
 		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
 		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name:            cc,
 					CollectionNames: []string{"collection"},
 				},
 			},
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, desc)
-		assert.Len(t, desc.Layouts, 1)
-		assert.Len(t, desc.Layouts[0].QuantitiesByGroup, 1)
-		assert.Equal(t, map[string]struct{}{
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 1)
+		require.Equal(t, map[string]struct{}{
 			peerIdentityString("p12"): {},
 		}, extractPeers(desc))
 	})
@@ -360,8 +359,8 @@ func TestPeersForEndorsement(t *testing.T) {
 		pf.On("PoliciesByChaincode", "cc3").Return(cc3policy).Once()
 
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: "cc1",
 				},
@@ -373,11 +372,11 @@ func TestPeersForEndorsement(t *testing.T) {
 				},
 			},
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, desc)
-		assert.Len(t, desc.Layouts, 1)
-		assert.Len(t, desc.Layouts[0].QuantitiesByGroup, 4)
-		assert.Equal(t, map[string]struct{}{
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 4)
+		require.Equal(t, map[string]struct{}{
 			peerIdentityString("p4"):  {},
 			peerIdentityString("p6"):  {},
 			peerIdentityString("p10"): {},
@@ -429,8 +428,8 @@ func TestPeersForEndorsement(t *testing.T) {
 		pf.On("PoliciesByChaincode", "cc2").Return(cc2policy).Once()
 
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name: "cc1",
 				},
@@ -439,11 +438,11 @@ func TestPeersForEndorsement(t *testing.T) {
 				},
 			},
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, desc)
-		assert.Len(t, desc.Layouts, 1)
-		assert.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
-		assert.Equal(t, map[string]struct{}{
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
 			peerIdentityString("p0"): {},
 			peerIdentityString("p1"): {},
 		}, extractPeers(desc))
@@ -481,21 +480,462 @@ func TestPeersForEndorsement(t *testing.T) {
 		pf := &policyFetcherMock{}
 		pf.On("PoliciesByChaincode", cc).Return([]policies.InquireablePolicy{chaincodeEP, collectionEP}).Once()
 		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
-		desc, err := analyzer.PeersForEndorsement(channel, &discoveryprotos.ChaincodeInterest{
-			Chaincodes: []*discoveryprotos.ChaincodeCall{
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
 				{
 					Name:            cc,
 					CollectionNames: []string{"collection"},
 				},
 			},
 		})
-		assert.NoError(t, err)
-		assert.NotNil(t, desc)
-		assert.Len(t, desc.Layouts, 1)
-		assert.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
-		assert.Equal(t, map[string]struct{}{
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
 			peerIdentityString("p6"):  {},
 			peerIdentityString("p12"): {},
+		}, extractPeers(desc))
+	})
+
+	t.Run("Private data blind write", func(t *testing.T) {
+		// Scenario XII: The collection has only p0 in it
+		// The chaincode EP is p6 or p0.
+		// The collection endorsement policy is p0 and p6.
+		// However p6 is not in the collection at all (only p0),
+		// so it doesn't have the pre-images.
+		// To that end, the client indicates that it's a blind write
+		// by turning on the "noPrivateRead" field in the request.
+		// This might seem like a pathological case, but it's
+		// effective because it is in the intersection of
+		// several use cases.
+
+		collectionOrgs := []*msp.MSPPrincipal{
+			peerRole("p0"),
+		}
+		col2principals := map[string][]*msp.MSPPrincipal{
+			"collection": collectionOrgs,
+		}
+
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:              cc,
+			Version:           "1.0",
+			CollectionsConfig: buildCollectionConfig(col2principals),
+		}).Once()
+		pb := principalBuilder{}
+		chaincodeEP := pb.newSet().addPrincipal(peerRole("p0")).newSet(). // p0 or p6
+											addPrincipal(peerRole("p6")).buildPolicy()
+		collectionEP := pb.newSet().addPrincipal(peerRole("p0")). // p0 and p6
+										addPrincipal(peerRole("p6")).buildPolicy()
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+		pf := &policyFetcherMock{}
+		pf.On("PoliciesByChaincode", cc).Return([]policies.InquireablePolicy{chaincodeEP, collectionEP}).Once()
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name:            cc,
+					CollectionNames: []string{"collection"},
+					NoPrivateReads:  true, // This means a blind write
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p0"): {},
+			peerIdentityString("p6"): {},
+		}, extractPeers(desc))
+	})
+
+	t.Run("Chaincode call with state based endorsement policy I", func(t *testing.T) {
+		// Scenario XIII: A chaincode call with a state based endorsement policy
+		// Total organizations are 0, 2, 4, 6, 10, 12
+		// and the endorsement policies of the chaincode is:
+		// cc1: OR(AND(0, 2), AND(6, 10))
+		// However the chaincode call is accompanied with a hint
+		// for a state based endorsement policy for organization 10
+		// Therefore, the result should be: 6, 10
+
+		chanPeers := peerSet{}
+		for _, id := range []int{0, 2, 4, 6, 10, 12} {
+			peer := newPeer(id).withChaincode("cc1", "1.0")
+			chanPeers = append(chanPeers, peer)
+		}
+
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:    "cc1",
+			Version: "1.0",
+		}).Once()
+
+		pb := principalBuilder{}
+		cc1policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p2")).
+			newSet().addPrincipal(peerRole("p6")).addPrincipal(peerRole("p10")).buildPolicy()
+
+		pf.On("PoliciesByChaincode", "cc1").Return(cc1policy).Once()
+
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name: "cc1",
+					KeyPolicies: []*common2.SignaturePolicyEnvelope{
+						{
+							Identities: []*msp.MSPPrincipal{peerRole("p10")},
+							Rule:       policydsl.SignedBy(0),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p6"):  {},
+			peerIdentityString("p10"): {},
+		}, extractPeers(desc))
+	})
+
+	t.Run("Chaincode call with state based endorsement policy II", func(t *testing.T) {
+		// Scenario XIV: A chaincode call with a state based endorsement policy
+		// Total organizations are 0, 2, 4, 6, 10, 12
+		// and the endorsement policies of the chaincode is:
+		// cc1: OR(AND(0, 2), AND(6, 10))
+		// However the chaincode call is accompanied with a hint
+		// for a state based endorsement policy for organization 12
+		// Therefore, the result should be: {0, 2, 12} or {6, 10, 12}
+
+		chanPeers := peerSet{}
+		for _, id := range []int{0, 2, 4, 6, 10, 12} {
+			peer := newPeer(id).withChaincode("cc1", "1.0")
+			chanPeers = append(chanPeers, peer)
+		}
+
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:    "cc1",
+			Version: "1.0",
+		}).Once()
+
+		pb := principalBuilder{}
+		cc1policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p2")).
+			newSet().addPrincipal(peerRole("p6")).addPrincipal(peerRole("p10")).buildPolicy()
+
+		pf.On("PoliciesByChaincode", "cc1").Return(cc1policy).Once()
+
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name: "cc1",
+					KeyPolicies: []*common2.SignaturePolicyEnvelope{
+						{
+							Identities: []*msp.MSPPrincipal{peerRole("p12")},
+							Rule:       policydsl.SignedBy(0),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 2)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 3)
+		require.Len(t, desc.Layouts[1].QuantitiesByGroup, 3)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p0"):  {},
+			peerIdentityString("p2"):  {},
+			peerIdentityString("p6"):  {},
+			peerIdentityString("p10"): {},
+			peerIdentityString("p12"): {},
+		}, extractPeers(desc))
+		// Find ID of org 12
+
+		// Ensure org 12 (and no other org) is found in both layouts
+		var intersectionSize int
+		for g1 := range desc.Layouts[0].QuantitiesByGroup {
+			for g2 := range desc.Layouts[1].QuantitiesByGroup {
+				if g1 == g2 {
+					require.Equal(t, intersectionSize, 0)
+					intersectionSize++
+					require.Equal(t, peerIdentityString("p12"), string(desc.EndorsersByGroups[g1].Peers[0].Identity))
+				}
+			}
+		}
+	})
+
+	t.Run("Chaincode call with state based endorsement policy III", func(t *testing.T) {
+		// Scenario XV: A chaincode call with a state based endorsement policy
+		// Total organizations are 0, 2, 4, 6, 10, 12
+		// and the endorsement policies of the chaincode is:
+		// cc1: OR(AND(0, 2), AND(6, 10))
+		// However the chaincode call is accompanied with a hint
+		// for a state based endorsement policy for both organizations 2 and 6
+		// Therefore, the result should be: {0, 2, 6} or {2, 6, 10}
+
+		chanPeers := peerSet{}
+		for _, id := range []int{0, 2, 4, 6, 10, 12} {
+			peer := newPeer(id).withChaincode("cc1", "1.0")
+			chanPeers = append(chanPeers, peer)
+		}
+
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:    "cc1",
+			Version: "1.0",
+		}).Once()
+
+		pb := principalBuilder{}
+		cc1policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p2")).
+			newSet().addPrincipal(peerRole("p6")).addPrincipal(peerRole("p10")).buildPolicy()
+
+		pf.On("PoliciesByChaincode", "cc1").Return(cc1policy).Once()
+
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name: "cc1",
+					KeyPolicies: []*common2.SignaturePolicyEnvelope{
+						{
+							Identities: []*msp.MSPPrincipal{peerRole("p2")},
+							Rule:       policydsl.SignedBy(0),
+						},
+						{
+							Identities: []*msp.MSPPrincipal{peerRole("p6")},
+							Rule:       policydsl.SignedBy(0),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 2)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 3)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p0"):  {},
+			peerIdentityString("p2"):  {},
+			peerIdentityString("p6"):  {},
+			peerIdentityString("p10"): {},
+		}, extractPeers(desc))
+
+		// Ensure orgs 2, 6 are found in both layouts
+		intersection := make(map[string]struct{})
+		for g1 := range desc.Layouts[0].QuantitiesByGroup {
+			for g2 := range desc.Layouts[1].QuantitiesByGroup {
+				if g1 == g2 {
+					intersection[string(desc.EndorsersByGroups[g1].Peers[0].Identity)] = struct{}{}
+				}
+			}
+		}
+
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p2"): {},
+			peerIdentityString("p6"): {},
+		}, intersection)
+	})
+
+	t.Run("Chaincode call with DisregardNamespacePolicy set but no key policies or collection policies present", func(t *testing.T) {
+		// Scenario XVI: A chaincode call with DisregardNamespacePolicy set
+		// Total organizations are 0, 2, 4, 6, 10, 12
+		// and there is a collection specified by the client but no collection policies exist
+		// We expect an error because since DisregardNamespacePolicy is specified, and no collection policies are defined,
+		// there is not a single endorsement policy to compute.
+
+		chanPeers := peerSet{}
+		for _, id := range []int{0, 2, 4, 6, 10, 12} {
+			peer := newPeer(id).withChaincode("cc1", "1.0")
+			chanPeers = append(chanPeers, peer)
+		}
+
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:    "cc1",
+			Version: "1.0",
+		}).Once()
+
+		pb := principalBuilder{}
+		cc1policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p2")).
+			newSet().addPrincipal(peerRole("p6")).addPrincipal(peerRole("p10")).buildPolicy()
+
+		pf.On("PoliciesByChaincode", "cc1").Return(cc1policy).Once()
+
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name:                     "cc1",
+					DisregardNamespacePolicy: true,
+				},
+			},
+		})
+		require.EqualError(t, err, "requested to disregard chaincode cc1's policy but key and collection policies are missing,"+
+			" either disable DisregardNamespacePolicy or specify at least one key policy or at least one collection policy")
+		require.Nil(t, desc)
+	})
+
+	t.Run("Chaincode call with state based endorsement policy and no chaincode namespace policy", func(t *testing.T) {
+		// Scenario XVII: A chaincode call with a state based endorsement policy and DisregardNamespacePolicy set
+		// Total organizations are 0, 2, 4, 6, 10, 12
+		// and the endorsement policies of the chaincode is:
+		// cc1: OR(AND(0, 2), AND(6, 10))
+		// However the chaincode call is accompanied with a hint
+		// for a state based endorsement policy for both organizations 2 and 6
+		// Therefore, the result should be: {2, 6}
+
+		chanPeers := peerSet{}
+		for _, id := range []int{0, 2, 4, 6, 10, 12} {
+			peer := newPeer(id).withChaincode("cc1", "1.0")
+			chanPeers = append(chanPeers, peer)
+		}
+
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:    "cc1",
+			Version: "1.0",
+		}).Once()
+
+		pb := principalBuilder{}
+		cc1policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p2")).
+			newSet().addPrincipal(peerRole("p6")).addPrincipal(peerRole("p10")).buildPolicy()
+
+		pf.On("PoliciesByChaincode", "cc1").Return(cc1policy).Once()
+
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name:                     "cc1",
+					DisregardNamespacePolicy: true,
+					KeyPolicies: []*common2.SignaturePolicyEnvelope{
+						{
+							Identities: []*msp.MSPPrincipal{peerRole("p2")},
+							Rule:       policydsl.SignedBy(0),
+						},
+						{
+							Identities: []*msp.MSPPrincipal{peerRole("p6")},
+							Rule:       policydsl.SignedBy(0),
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p2"): {},
+			peerIdentityString("p6"): {},
+		}, extractPeers(desc))
+	})
+
+	t.Run("Chaincode call with collection endorsement policy and no namespace endorsement policy", func(t *testing.T) {
+		// Scenario XVIII: A chaincode call with collection endorsement policy and DisregardNamespacePolicy set
+		// The chaincode EP is OR(AND(0, 2), AND(6, 10))
+		// The collection endorsement policy is p0 and p2.
+		// Additionally, the client sets DisregardNamespacePolicy which makes
+		// discovery only use the collection policy and not the namespace policy.
+
+		chanPeers := peerSet{}
+		for _, id := range []int{0, 2, 4, 6, 10, 12} {
+			peer := newPeer(id).withChaincode("cc1", "1.0")
+			chanPeers = append(chanPeers, peer)
+		}
+
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+
+		collectionOrgs := []*msp.MSPPrincipal{
+			peerRole("p0"),
+			peerRole("p2"),
+		}
+		col2principals := map[string][]*msp.MSPPrincipal{
+			"collection": collectionOrgs,
+		}
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:              "cc1",
+			Version:           "1.0",
+			CollectionsConfig: buildCollectionConfig(col2principals),
+		}).Once()
+
+		pb := principalBuilder{}
+		cc1policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p2")).
+			newSet().addPrincipal(peerRole("p6")).addPrincipal(peerRole("p10")).buildPolicy()
+
+		collectionEP := pb.newSet().addPrincipal(peerRole("p0")). // p0 and p6
+										addPrincipal(peerRole("p2")).buildPolicy()
+
+		pf.On("PoliciesByChaincode", "cc1").Return([]policies.InquireablePolicy{cc1policy, collectionEP}).Once()
+
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name:                     "cc1",
+					DisregardNamespacePolicy: true,
+					CollectionNames:          []string{"collection"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p0"): {},
+			peerIdentityString("p2"): {},
+		}, extractPeers(desc))
+	})
+
+	t.Run("Identity based endorsement policy doesn't interfere with discovery", func(t *testing.T) {
+		// Scenario XIX: Policy is based on either identities or on organizations
+		// 2 principal combinations:
+		// p0 and p6 (organizations), or p7 (identity)
+
+		pb := principalBuilder{}
+		policy := pb.newSet().addPrincipal(peerRole("p0")).addPrincipal(peerRole("p6")).
+			newSet().addPrincipal(identity("p7")).buildPolicy()
+		g.On("PeersOfChannel").Return(chanPeers.toMembers()).Once()
+		mf := &metadataFetcher{}
+		mf.On("Metadata").Return(&chaincode.Metadata{
+			Name:    cc,
+			Version: "1.0",
+		}).Once()
+		analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
+
+		pf.On("PoliciesByChaincode", cc).Return(policy).Once()
+		desc, err := analyzer.PeersForEndorsement(channel, &peer.ChaincodeInterest{
+			Chaincodes: []*peer.ChaincodeCall{
+				{
+					Name: cc,
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, desc)
+		require.Len(t, desc.Layouts, 1)
+		require.Len(t, desc.Layouts[0].QuantitiesByGroup, 2)
+		require.Equal(t, map[string]struct{}{
+			peerIdentityString("p0"): {},
+			peerIdentityString("p6"): {},
 		}, extractPeers(desc))
 	})
 }
@@ -534,7 +974,7 @@ func TestPeersAuthorizedByCriteria(t *testing.T) {
 
 	for _, tst := range []struct {
 		name                 string
-		arguments            *discoveryprotos.ChaincodeInterest
+		arguments            *peer.ChaincodeInterest
 		totalExistingMembers discovery.Members
 		metadata             []*chaincode.Metadata
 		expected             discovery.Members
@@ -547,14 +987,14 @@ func TestPeersAuthorizedByCriteria(t *testing.T) {
 		},
 		{
 			name:                 "Empty interest invocation chain",
-			arguments:            &discoveryprotos.ChaincodeInterest{},
+			arguments:            &peer.ChaincodeInterest{},
 			totalExistingMembers: members,
 			expected:             members,
 		},
 		{
 			name: "Chaincodes only installed on some peers",
-			arguments: &discoveryprotos.ChaincodeInterest{
-				Chaincodes: []*discoveryprotos.ChaincodeCall{
+			arguments: &peer.ChaincodeInterest{
+				Chaincodes: []*peer.ChaincodeCall{
 					{Name: cc1},
 					{Name: cc2},
 				},
@@ -574,8 +1014,8 @@ func TestPeersAuthorizedByCriteria(t *testing.T) {
 		},
 		{
 			name: "Only some peers authorized by collection",
-			arguments: &discoveryprotos.ChaincodeInterest{
-				Chaincodes: []*discoveryprotos.ChaincodeCall{
+			arguments: &peer.ChaincodeInterest{
+				Chaincodes: []*peer.ChaincodeCall{
 					{Name: cc1, CollectionNames: []string{"collection"}},
 				},
 			},
@@ -604,7 +1044,8 @@ func TestPeersAuthorizedByCriteria(t *testing.T) {
 			},
 			expected: peerSet{
 				newPeer(0).withChaincode(cc1, "1.0"),
-				newPeer(12).withChaincode(cc1, "1.0")}.toMembers(),
+				newPeer(12).withChaincode(cc1, "1.0"),
+			}.toMembers(),
 		},
 	} {
 		t.Run(tst.name, func(t *testing.T) {
@@ -620,46 +1061,47 @@ func TestPeersAuthorizedByCriteria(t *testing.T) {
 
 			analyzer := NewEndorsementAnalyzer(g, pf, &principalEvaluatorMock{}, mf)
 			actualMembers, err := analyzer.PeersAuthorizedByCriteria(common.ChannelID("mychannel"), tst.arguments)
-			assert.NoError(t, err)
-			assert.Equal(t, tst.expected, actualMembers)
+			require.NoError(t, err)
+			require.Equal(t, tst.expected, actualMembers)
 		})
 	}
 }
 
 func TestPop(t *testing.T) {
 	slice := []inquire.ComparablePrincipalSets{{}, {}}
-	assert.Len(t, slice, 2)
+	require.Len(t, slice, 2)
 	_, slice, err := popComparablePrincipalSets(slice)
-	assert.NoError(t, err)
-	assert.Len(t, slice, 1)
+	require.NoError(t, err)
+	require.Len(t, slice, 1)
 	_, slice, err = popComparablePrincipalSets(slice)
-	assert.Len(t, slice, 0)
-	_, slice, err = popComparablePrincipalSets(slice)
-	assert.Error(t, err)
-	assert.Equal(t, "no principal sets remained after filtering", err.Error())
+	require.NoError(t, err)
+	require.Len(t, slice, 0)
+	_, _, err = popComparablePrincipalSets(slice)
+	require.Error(t, err)
+	require.Equal(t, "no principal sets remained after filtering", err.Error())
 }
 
 func TestMergePrincipalSetsNilInput(t *testing.T) {
 	_, err := mergePrincipalSets(nil)
-	assert.Error(t, err)
-	assert.Equal(t, "no principal sets remained after filtering", err.Error())
+	require.Error(t, err)
+	require.Equal(t, "no principal sets remained after filtering", err.Error())
 }
 
 func TestComputePrincipalSetsNoPolicies(t *testing.T) {
 	// Tests a hypothetical case where no chaincodes populate the chaincode interest.
 
-	interest := &discoveryprotos.ChaincodeInterest{
-		Chaincodes: []*discoveryprotos.ChaincodeCall{},
+	interest := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{},
 	}
 	ea := &endorsementAnalyzer{}
 	_, err := ea.computePrincipalSets(common.ChannelID("mychannel"), interest)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no principal sets remained after filtering")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no principal sets remained after filtering")
 }
 
 func TestLoadMetadataAndFiltersCollectionNotPresentInConfig(t *testing.T) {
-	interest := &discoveryprotos.ChaincodeInterest{
-		Chaincodes: []*discoveryprotos.ChaincodeCall{
+	interest := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{
 			{
 				Name:            "mycc",
 				CollectionNames: []string{"bar"},
@@ -691,12 +1133,12 @@ func TestLoadMetadataAndFiltersCollectionNotPresentInConfig(t *testing.T) {
 		interest:         interest,
 	})
 
-	assert.Equal(t, "collection bar doesn't exist in collection config for chaincode mycc", err.Error())
+	require.Equal(t, "collection bar doesn't exist in collection config for chaincode mycc", err.Error())
 }
 
 func TestLoadMetadataAndFiltersInvalidCollectionData(t *testing.T) {
-	interest := &discoveryprotos.ChaincodeInterest{
-		Chaincodes: []*discoveryprotos.ChaincodeCall{
+	interest := &peer.ChaincodeInterest{
+		Chaincodes: []*peer.ChaincodeCall{
 			{
 				Name:            "mycc",
 				CollectionNames: []string{"col1"},
@@ -717,8 +1159,8 @@ func TestLoadMetadataAndFiltersInvalidCollectionData(t *testing.T) {
 		fetch:            mdf,
 		interest:         interest,
 	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "collection col1 doesn't exist in collection config for chaincode mycc")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "collection col1 doesn't exist in collection config for chaincode mycc")
 }
 
 type peerSet []*peerInfo
@@ -786,6 +1228,16 @@ func peerRole(pkiID string) *msp.MSPPrincipal {
 		Principal: protoutil.MarshalOrPanic(&msp.MSPRole{
 			MspIdentifier: pkiID2MSPID[pkiID],
 			Role:          msp.MSPRole_PEER,
+		}),
+	}
+}
+
+func identity(pkiID string) *msp.MSPPrincipal {
+	return &msp.MSPPrincipal{
+		PrincipalClassification: msp.MSPPrincipal_IDENTITY,
+		Principal: protoutil.MarshalOrPanic(&msp.SerializedIdentity{
+			Mspid:   pkiID2MSPID[pkiID],
+			IdBytes: []byte(pkiID),
 		}),
 	}
 }
@@ -864,16 +1316,26 @@ func (ip inquireablePolicy) SatisfiedBy() []policies.PrincipalSet {
 	return ip
 }
 
-type principalEvaluatorMock struct {
-}
+type principalEvaluatorMock struct{}
 
-func (pe *principalEvaluatorMock) SatisfiesPrincipal(channel string, identity []byte, principal *msp.MSPPrincipal) error {
-	peerRole := &msp.MSPRole{}
-	if err := proto.Unmarshal(principal.Principal, peerRole); err != nil {
-		return err
-	}
+func (pe *principalEvaluatorMock) SatisfiesPrincipal(_ string, identity []byte, principal *msp.MSPPrincipal) error {
 	sId := &msp.SerializedIdentity{}
 	if err := proto.Unmarshal(identity, sId); err != nil {
+		return err
+	}
+	if principal.PrincipalClassification == msp.MSPPrincipal_IDENTITY {
+		identityPrincipal := &msp.SerializedIdentity{}
+		if err := proto.Unmarshal(principal.Principal, identityPrincipal); err != nil {
+			return err
+		}
+		if proto.Equal(sId, identityPrincipal) {
+			return nil
+		}
+		return fmt.Errorf("identities do not match")
+	}
+	// Else, it's either an OU type or a role type, so we only classify by MSP ID
+	peerRole := &msp.MSPRole{}
+	if err := proto.Unmarshal(principal.Principal, peerRole); err != nil {
 		return err
 	}
 	if peerRole.MspIdentifier == sId.Mspid {
@@ -886,7 +1348,7 @@ type metadataFetcher struct {
 	mock.Mock
 }
 
-func (mf *metadataFetcher) Metadata(channel string, cc string, _ bool) *chaincode.Metadata {
+func (mf *metadataFetcher) Metadata(channel string, cc string, _ ...string) *chaincode.Metadata {
 	arg := mf.Called().Get(0)
 	if arg == nil {
 		return nil

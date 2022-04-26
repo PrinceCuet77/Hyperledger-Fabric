@@ -8,13 +8,13 @@ package sw
 
 import (
 	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"reflect"
 
 	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/bccsp/utils"
 )
 
 type aes256ImportKeyOptsKeyImporter struct{}
@@ -33,7 +33,7 @@ func (*aes256ImportKeyOptsKeyImporter) KeyImport(raw interface{}, opts bccsp.Key
 		return nil, fmt.Errorf("Invalid Key Length [%d]. Must be 32 bytes", len(aesRaw))
 	}
 
-	return &aesPrivateKey{utils.Clone(aesRaw), false}, nil
+	return &aesPrivateKey{aesRaw, false}, nil
 }
 
 type hmacImportKeyOptsKeyImporter struct{}
@@ -48,7 +48,7 @@ func (*hmacImportKeyOptsKeyImporter) KeyImport(raw interface{}, opts bccsp.KeyIm
 		return nil, errors.New("Invalid raw material. It must not be nil.")
 	}
 
-	return &aesPrivateKey{utils.Clone(aesRaw), false}, nil
+	return &aesPrivateKey{aesRaw, false}, nil
 }
 
 type ecdsaPKIXPublicKeyImportOptsKeyImporter struct{}
@@ -63,7 +63,7 @@ func (*ecdsaPKIXPublicKeyImportOptsKeyImporter) KeyImport(raw interface{}, opts 
 		return nil, errors.New("Invalid raw. It must not be nil.")
 	}
 
-	lowLevelKey, err := utils.DERToPublicKey(der)
+	lowLevelKey, err := derToPublicKey(der)
 	if err != nil {
 		return nil, fmt.Errorf("Failed converting PKIX to ECDSA public key [%s]", err)
 	}
@@ -88,7 +88,7 @@ func (*ecdsaPrivateKeyImportOptsKeyImporter) KeyImport(raw interface{}, opts bcc
 		return nil, errors.New("[ECDSADERPrivateKeyImportOpts] Invalid raw. It must not be nil.")
 	}
 
-	lowLevelKey, err := utils.DERToPrivateKey(der)
+	lowLevelKey, err := derToPrivateKey(der)
 	if err != nil {
 		return nil, fmt.Errorf("Failed converting PKIX to ECDSA public key [%s]", err)
 	}
@@ -124,12 +124,16 @@ func (ki *x509PublicKeyImportOptsKeyImporter) KeyImport(raw interface{}, opts bc
 
 	pk := x509Cert.PublicKey
 
-	switch pk.(type) {
+	switch pk := pk.(type) {
 	case *ecdsa.PublicKey:
 		return ki.bccsp.KeyImporters[reflect.TypeOf(&bccsp.ECDSAGoPublicKeyImportOpts{})].KeyImport(
 			pk,
 			&bccsp.ECDSAGoPublicKeyImportOpts{Temporary: opts.Ephemeral()})
+	case *rsa.PublicKey:
+		// This path only exists to support environments that use RSA certificate
+		// authorities to issue ECDSA certificates.
+		return &rsaPublicKey{pubKey: pk}, nil
 	default:
-		return nil, errors.New("Certificate's public key type not recognized. Supported keys: [ECDSA]")
+		return nil, errors.New("Certificate's public key type not recognized. Supported keys: [ECDSA, RSA]")
 	}
 }

@@ -28,8 +28,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/hyperledger/fabric/core/comm"
+	"github.com/hyperledger/fabric/common/viperutil"
 	"github.com/hyperledger/fabric/core/config"
+	"github.com/hyperledger/fabric/internal/pkg/comm"
+	gatewayconfig "github.com/hyperledger/fabric/internal/pkg/gateway/config"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 )
@@ -37,7 +39,11 @@ import (
 // ExternalBuilder represents the configuration structure of
 // a chaincode external builder
 type ExternalBuilder struct {
-	EnvironmentWhitelist []string `yaml:"environmentWhitelist"`
+	// TODO: Remove Environment in 3.0
+	// Deprecated: Environment is retained for backwards compatibility.
+	// New deployments should use the new PropagateEnvironment field
+	Environment          []string `yaml:"environmentWhitelist"`
+	PropagateEnvironment []string `yaml:"propagateEnvironment"`
 	Name                 string   `yaml:"name"`
 	Path                 string   `yaml:"path"`
 }
@@ -110,9 +116,18 @@ type Config struct {
 	// Limits is used to configure some internal resource limits.
 	// TODO: create separate sub-struct for Limits config.
 
-	// LimitsConcurrencyQSCC sets the limits for number of concurrently running
-	// qscc system chaincode requests.
-	LimitsConcurrencyQSCC int
+	// LimitsConcurrencyEndorserService sets the limits for concurrent requests sent to
+	// endorser service that handles chaincode deployment, query and invocation,
+	// including both user chaincodes and system chaincodes.
+	LimitsConcurrencyEndorserService int
+
+	// LimitsConcurrencyDeliverService sets the limits for concurrent event listeners
+	// registered to deliver service for blocks and transaction events.
+	LimitsConcurrencyDeliverService int
+
+	// LimitsConcurrencyGatewayService sets the limits for concurrent requests to
+	// gateway service that handles the submission and evaluation of transactions.
+	LimitsConcurrencyGatewayService int
 
 	// ----- TLS -----
 	// Require server-side TLS.
@@ -197,6 +212,13 @@ type Config struct {
 	DockerKey string
 	// DockerCA is the path to the PEM encoded CA certificate for the docker daemon.
 	DockerCA string
+
+	// ----- Gateway config -----
+
+	// The gateway service is used by client SDKs to
+	// interact with fabric networks
+
+	GatewayOptions gatewayconfig.Options
 }
 
 // GlobalConfig obtains a set of configuration from viper, build and returns
@@ -210,14 +232,14 @@ func GlobalConfig() (*Config, error) {
 }
 
 func (c *Config) load() error {
-	preeAddress, err := getLocalAddress()
+	peerAddress, err := getLocalAddress()
 	if err != nil {
 		return err
 	}
 
 	configDir := filepath.Dir(viper.ConfigFileUsed())
 
-	c.PeerAddress = preeAddress
+	c.PeerAddress = peerAddress
 	c.PeerID = viper.GetString("peer.id")
 	c.LocalMSPID = viper.GetString("peer.localMspId")
 	c.ListenAddress = viper.GetString("peer.listenAddress")
@@ -231,7 +253,9 @@ func (c *Config) load() error {
 
 	c.PeerTLSEnabled = viper.GetBool("peer.tls.enabled")
 	c.NetworkID = viper.GetString("peer.networkId")
-	c.LimitsConcurrencyQSCC = viper.GetInt("peer.limits.concurrency.qscc")
+	c.LimitsConcurrencyEndorserService = viper.GetInt("peer.limits.concurrency.endorserService")
+	c.LimitsConcurrencyDeliverService = viper.GetInt("peer.limits.concurrency.deliverService")
+	c.LimitsConcurrencyGatewayService = viper.GetInt("peer.limits.concurrency.gatewayService")
 	c.DiscoveryEnabled = viper.GetBool("peer.discovery.enabled")
 	c.ProfileEnabled = viper.GetBool("peer.profile.enabled")
 	c.ProfileListenAddress = viper.GetString("peer.profile.listenAddress")
@@ -255,6 +279,8 @@ func (c *Config) load() error {
 		c.DeliverClientKeepaliveOptions.ClientTimeout = viper.GetDuration("peer.keepalive.deliveryClient.timeout")
 	}
 
+	c.GatewayOptions = gatewayconfig.GetOptions(viper.GetViper())
+
 	c.VMEndpoint = viper.GetString("vm.endpoint")
 	c.VMDockerTLSEnabled = viper.GetBool("vm.docker.tls.enabled")
 	c.VMDockerAttachStdout = viper.GetBool("vm.docker.attachStdout")
@@ -266,19 +292,24 @@ func (c *Config) load() error {
 
 	c.ChaincodePull = viper.GetBool("chaincode.pull")
 	var externalBuilders []ExternalBuilder
-	err = viper.UnmarshalKey("chaincode.externalBuilders", &externalBuilders)
+
+	err = viper.UnmarshalKey("chaincode.externalBuilders", &externalBuilders, viper.DecodeHook(viperutil.YamlStringToStructHook(externalBuilders)))
 	if err != nil {
 		return err
 	}
-	for _, builder := range externalBuilders {
+
+	c.ExternalBuilders = externalBuilders
+	for builderIndex, builder := range c.ExternalBuilders {
 		if builder.Path == "" {
 			return fmt.Errorf("invalid external builder configuration, path attribute missing in one or more builders")
 		}
 		if builder.Name == "" {
 			return fmt.Errorf("external builder at path %s has no name attribute", builder.Path)
 		}
+		if builder.Environment != nil && builder.PropagateEnvironment == nil {
+			c.ExternalBuilders[builderIndex].PropagateEnvironment = builder.Environment
+		}
 	}
-	c.ExternalBuilders = externalBuilders
 
 	c.OperationsListenAddress = viper.GetString("operations.listenAddress")
 	c.OperationsTLSEnabled = viper.GetBool("operations.tls.enabled")
@@ -314,7 +345,7 @@ func getLocalAddress() (string, error) {
 		return "", errors.Errorf("peer.address isn't in host:port format: %s", peerAddress)
 	}
 
-	localIP, err := comm.GetLocalIP()
+	localIP, err := getLocalIP()
 	if err != nil {
 		peerLogger.Errorf("local IP address not auto-detectable: %s", err)
 		return "", err
@@ -334,7 +365,23 @@ func getLocalAddress() (string, error) {
 	}
 	peerLogger.Info("Returning", peerAddress)
 	return peerAddress, nil
+}
 
+// getLocalIP returns the a loopback local IP of the host.
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+	for _, address := range addrs {
+		// check the address type and if it is not a loopback then display it
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "", errors.Errorf("no non-loopback, IPv4 interface detected")
 }
 
 // GetServerConfig returns the gRPC server configuration for the peer
@@ -393,6 +440,16 @@ func GetServerConfig() (comm.ServerConfig, error) {
 	// check to see if minInterval is set for the env
 	if viper.IsSet("peer.keepalive.minInterval") {
 		serverConfig.KaOpts.ServerMinInterval = viper.GetDuration("peer.keepalive.minInterval")
+	}
+
+	serverConfig.MaxRecvMsgSize = comm.DefaultMaxRecvMsgSize
+	serverConfig.MaxSendMsgSize = comm.DefaultMaxSendMsgSize
+
+	if viper.IsSet("peer.maxRecvMsgSize") {
+		serverConfig.MaxRecvMsgSize = int(viper.GetInt32("peer.maxRecvMsgSize"))
+	}
+	if viper.IsSet("peer.maxSendMsgSize") {
+		serverConfig.MaxSendMsgSize = int(viper.GetInt32("peer.maxSendMsgSize"))
 	}
 	return serverConfig, nil
 }

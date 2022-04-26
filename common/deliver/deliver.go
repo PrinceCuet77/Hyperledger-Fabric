@@ -21,7 +21,6 @@ import (
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
-	"github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -147,7 +146,7 @@ func NewHandler(cm ChainManager, timeWindow time.Duration, mutualTLS bool, metri
 	return &Handler{
 		ChainManager:        cm,
 		TimeWindow:          timeWindow,
-		BindingInspector:    InspectorFunc(comm.NewBindingInspector(mutualTLS, ExtractChannelHeaderCertHash)),
+		BindingInspector:    InspectorFunc(NewBindingInspector(mutualTLS, ExtractChannelHeaderCertHash)),
 		Metrics:             metrics,
 		ExpirationCheckFunc: expirationCheck,
 	}
@@ -249,7 +248,7 @@ func (h *Handler) deliverBlocks(ctx context.Context, srv *Server, envelope *cb.E
 	}
 
 	if err := accessControl.Evaluate(); err != nil {
-		logger.Warningf("[channel: %s] Client authorization revoked for deliver request from %s: %s", chdr.ChannelId, addr, err)
+		logger.Warningf("[channel: %s] Client %s is not authorized: %s", chdr.ChannelId, addr, err)
 		return cb.Status_FORBIDDEN, nil
 	}
 

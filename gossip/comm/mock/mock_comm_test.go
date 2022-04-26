@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/gossip/protoext"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockComm(t *testing.T) {
@@ -45,8 +45,8 @@ func TestMockComm(t *testing.T) {
 
 	msg := <-msgCh
 
-	assert.NotNil(t, msg.GetGossipMessage().GetStateRequest())
-	assert.Equal(t, "first", string(comm1.GetPKIid()))
+	require.NotNil(t, msg.GetGossipMessage().GetStateRequest())
+	require.Equal(t, "first", string(comm1.GetPKIid()))
 }
 
 func TestMockComm_PingPong(t *testing.T) {
@@ -72,14 +72,15 @@ func TestMockComm_PingPong(t *testing.T) {
 					SeqNum: 1,
 					Data:   []byte("Ping"),
 				},
-			}},
+			},
+		},
 	})
 	peerA.Send(sMsg, &comm.RemotePeer{Endpoint: "peerB", PKIID: common.PKIidType("peerB")})
 
 	msg := <-rcvChB
 	dataMsg := msg.GetGossipMessage().GetDataMsg()
 	data := string(dataMsg.Payload.Data)
-	assert.Equal(t, "Ping", data)
+	require.Equal(t, "Ping", data)
 
 	msg.Respond(&proto.GossipMessage{
 		Content: &proto.GossipMessage_DataMsg{
@@ -88,12 +89,12 @@ func TestMockComm_PingPong(t *testing.T) {
 					SeqNum: 1,
 					Data:   []byte("Pong"),
 				},
-			}},
+			},
+		},
 	})
 
 	msg = <-rcvChA
 	dataMsg = msg.GetGossipMessage().GetDataMsg()
 	data = string(dataMsg.Payload.Data)
-	assert.Equal(t, "Pong", data)
-
+	require.Equal(t, "Pong", data)
 }

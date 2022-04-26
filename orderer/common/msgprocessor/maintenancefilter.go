@@ -24,7 +24,7 @@ import (
 type MaintenanceFilterSupport interface {
 	// OrdererConfig returns the config.Orderer for the channel and whether the Orderer config exists
 	OrdererConfig() (channelconfig.Orderer, bool)
-
+	// ChannelID returns the ChannelID
 	ChannelID() string
 }
 
@@ -117,7 +117,8 @@ func (mf *MaintenanceFilter) inspect(configEnvelope *cb.ConfigEnvelope, ordererC
 		}
 	}
 
-	// ConsensusType.Type can only change in maintenance-mode, and only from kafka to raft (for now).
+	// ConsensusType.Type can only change in maintenance-mode, and only within the set of permitted types.
+	// Note: only kafka to etcdraft or solo to etcdraft transitions are actually supported.
 	if ordererConfig.ConsensusType() != nextOrdererConfig.ConsensusType() {
 		if ordererConfig.ConsensusState() == orderer.ConsensusType_STATE_NORMAL {
 			return errors.Errorf("attempted to change consensus type from %s to %s, but current config ConsensusType.State is not in maintenance mode",
@@ -155,15 +156,14 @@ func (mf *MaintenanceFilter) inspect(configEnvelope *cb.ConfigEnvelope, ordererC
 // ensureConsensusTypeChangeOnly checks that the only change is the the Channel/Orderer group, and within that,
 // only to the ConsensusType value.
 func (mf *MaintenanceFilter) ensureConsensusTypeChangeOnly(configEnvelope *cb.ConfigEnvelope) error {
-
 	configUpdateEnv, err := protoutil.EnvelopeToConfigUpdate(configEnvelope.LastUpdate)
 	if err != nil {
-		return errors.Wrap(err, "envelope to config update unmarshaling error")
+		return errors.Wrap(err, "envelope to config update unmarshalling error")
 	}
 
 	configUpdate, err := configtx.UnmarshalConfigUpdate(configUpdateEnv.ConfigUpdate)
 	if err != nil {
-		return errors.Wrap(err, "config update unmarshaling error")
+		return errors.Wrap(err, "config update unmarshalling error")
 	}
 
 	if len(configUpdate.WriteSet.Groups) == 0 {

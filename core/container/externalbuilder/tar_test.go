@@ -18,9 +18,7 @@ import (
 
 var _ = Describe("Tar", func() {
 	Describe("Untar", func() {
-		var (
-			dst string
-		)
+		var dst string
 
 		BeforeEach(func() {
 			var err error
@@ -43,8 +41,8 @@ var _ = Describe("Tar", func() {
 		Context("when the archive conains an odd file type", func() {
 			It("returns an error", func() {
 				file, err := os.Open("testdata/archive_with_symlink.tar.gz")
-				defer file.Close()
 				Expect(err).NotTo(HaveOccurred())
+				defer file.Close()
 				err = externalbuilder.Untar(file, dst)
 				Expect(err).To(MatchError("invalid file type '50' contained in archive for file 'c.file'"))
 			})
@@ -62,7 +60,7 @@ var _ = Describe("Tar", func() {
 
 		Context("when the file's directory cannot be created", func() {
 			BeforeEach(func() {
-				ioutil.WriteFile(dst+"/a", []byte("test"), 0700)
+				ioutil.WriteFile(dst+"/a", []byte("test"), 0o700)
 			})
 
 			It("returns an error", func() {
@@ -76,7 +74,7 @@ var _ = Describe("Tar", func() {
 
 		Context("when the empty directory cannot be created", func() {
 			BeforeEach(func() {
-				ioutil.WriteFile(dst+"/d", []byte("test"), 0700)
+				ioutil.WriteFile(dst+"/d", []byte("test"), 0o700)
 			})
 
 			It("returns an error", func() {
@@ -104,5 +102,4 @@ var _ = Describe("Tar", func() {
 			Expect(externalbuilder.ValidPath("/an/absolute/path")).To(BeFalse())
 		})
 	})
-
 })

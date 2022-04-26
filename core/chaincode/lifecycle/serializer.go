@@ -335,7 +335,7 @@ func (s *Serializer) Deserialize(namespace, name string, metadata *lb.StateMetad
 				fieldValue.SetBytes(oneOf)
 			}
 		case reflect.Ptr:
-			// Note, even non-existant keys will decode to an empty proto
+			// Note, even non-existent keys will decode to an empty proto
 			msg := reflect.New(fieldValue.Type().Elem())
 			err := s.DeserializeFieldAsProto(namespace, name, fieldName, state, msg.Interface().(proto.Message))
 			if err != nil {
@@ -460,7 +460,7 @@ func (s *Serializer) DeserializeAllMetadata(namespace string, state RangeableSta
 		metadata := &lb.StateMetadata{}
 		err = proto.Unmarshal(value, metadata)
 		if err != nil {
-			return nil, errors.Wrapf(err, "error unmarshaling metadata for key %s", key)
+			return nil, errors.Wrapf(err, "error unmarshalling metadata for key %s", key)
 		}
 		result[name] = metadata
 	}

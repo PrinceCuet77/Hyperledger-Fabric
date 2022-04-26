@@ -40,7 +40,7 @@ type connectionStore struct {
 	connFactory      connFactory            // creates a connection to remote peer
 	sync.RWMutex                            // synchronize access to shared variables
 	pki2Conn         map[string]*connection // mapping between pkiID to connections
-	destinationLocks map[string]*sync.Mutex //mapping between pkiIDs and locks,
+	destinationLocks map[string]*sync.Mutex // mapping between pkiIDs and locks,
 	// used to prevent concurrent connection establishment to the same remote endpoint
 }
 
@@ -250,7 +250,7 @@ func (conn *connection) send(msg *protoext.SignedGossipMessage, onErr func(error
 		if shouldBlock {
 			select {
 			case conn.outBuff <- m: // try again, and wait to send
-			case <-conn.stopChan: //stop blocking if the connection is closing
+			case <-conn.stopChan: // stop blocking if the connection is closing
 			}
 		} else {
 			conn.metrics.BufferOverflow.Add(1)
@@ -320,6 +320,7 @@ func (conn *connection) readFromStream(errChan chan error, msgChan chan *protoex
 			if err != nil {
 				errChan <- err
 				conn.logger.Warningf("Got error, aborting: %v", err)
+				return
 			}
 			select {
 			case <-conn.stopChan:
@@ -332,4 +333,10 @@ func (conn *connection) readFromStream(errChan chan error, msgChan chan *protoex
 type msgSending struct {
 	envelope *proto.Envelope
 	onErr    func(error)
+}
+
+//go:generate mockery -dir . -name MockStream -case underscore -output mocks/
+
+type MockStream interface {
+	proto.Gossip_GossipStreamClient
 }

@@ -22,7 +22,7 @@ import (
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
 	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/common/cauthdsl"
+	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/peer/common"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
@@ -119,6 +119,8 @@ func (c *chaincodeInput) UnmarshalJSON(b []byte) error {
 }
 
 func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
+	logger.Info("---ipc-common.go : chaincodeInvokeOrQuery---")
+
 	spec, err := getChaincodeSpec(cmd)
 	if err != nil {
 		return err
@@ -139,7 +141,6 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		cf.DeliverClients,
 		cf.BroadcastClient,
 	)
-
 	if err != nil {
 		return errors.Errorf("%s - proposal response: %v", err, proposalResp)
 	}
@@ -148,11 +149,11 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Debugf("ESCC invoke result: %v", proposalResp)
 		pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
 		if err != nil {
-			return errors.WithMessage(err, "error while unmarshaling proposal response payload")
+			return errors.WithMessage(err, "error while unmarshalling proposal response payload")
 		}
 		ca, err := protoutil.UnmarshalChaincodeAction(pRespPayload.Extension)
 		if err != nil {
-			return errors.WithMessage(err, "error while unmarshaling chaincode action")
+			return errors.WithMessage(err, "error while unmarshalling chaincode action")
 		}
 		if proposalResp.Endorsement == nil {
 			return errors.Errorf("endorsement failure during invoke. response: %v", proposalResp.Response)
@@ -222,7 +223,7 @@ func getCollectionConfigFromBytes(cconfBytes []byte) (*pb.CollectionConfigPackag
 
 	ccarray := make([]*pb.CollectionConfig, 0, len(*cconf))
 	for _, cconfitem := range *cconf {
-		p, err := cauthdsl.FromString(cconfitem.Policy)
+		p, err := policydsl.FromString(cconfitem.Policy)
 		if err != nil {
 			return nil, nil, errors.WithMessagef(err, "invalid policy %s", cconfitem.Policy)
 		}
@@ -289,7 +290,7 @@ func getApplicationPolicy(signaturePolicy, channelConfigPolicy string) (*pb.Appl
 
 	var applicationPolicy *pb.ApplicationPolicy
 	if signaturePolicy != "" {
-		signaturePolicyEnvelope, err := cauthdsl.FromString(signaturePolicy)
+		signaturePolicyEnvelope, err := policydsl.FromString(signaturePolicy)
 		if err != nil {
 			return nil, errors.Errorf("invalid signature policy: %s", signaturePolicy)
 		}
@@ -339,7 +340,7 @@ func checkChaincodeCmdParams(cmd *cobra.Command) error {
 		}
 
 		if policy != common.UndefinedParamValue {
-			p, err := cauthdsl.FromString(policy)
+			p, err := policydsl.FromString(policy)
 			if err != nil {
 				return errors.Errorf("invalid policy %s", policy)
 			}
@@ -469,7 +470,7 @@ func InitCmdFactory(cmdName string, isEndorserRequired, isOrdererRequired bool, 
 			return nil, errors.New("no endorser clients retrieved - this might indicate a bug")
 		}
 	}
-	certificate, err := common.GetCertificateFnc()
+	certificate, err := common.GetClientCertificateFnc()
 	if err != nil {
 		return nil, errors.WithMessage(err, "error getting client certificate")
 	}
@@ -492,7 +493,7 @@ func InitCmdFactory(cmdName string, isEndorserRequired, isOrdererRequired bool, 
 				return nil, errors.WithMessagef(err, "error getting channel (%s) orderer endpoint", channelID)
 			}
 			if len(orderingEndpoints) == 0 {
-				return nil, errors.Errorf("no orderer endpoints retrieved for channel %s", channelID)
+				return nil, errors.Errorf("no orderer endpoints retrieved for channel %s, pass orderer endpoint with -o flag instead", channelID)
 			}
 			logger.Infof("Retrieved channel (%s) orderer endpoint: %s", channelID, orderingEndpoints[0])
 			// override viper env
@@ -500,7 +501,6 @@ func InitCmdFactory(cmdName string, isEndorserRequired, isOrdererRequired bool, 
 		}
 
 		broadcastClient, err = common.GetBroadcastClientFnc()
-
 		if err != nil {
 			return nil, errors.WithMessage(err, "error getting broadcast client")
 		}
@@ -694,9 +694,13 @@ func NewDeliverGroup(
 ) *DeliverGroup {
 	clients := make([]*DeliverClient, len(deliverClients))
 	for i, client := range deliverClients {
+		address := peerAddresses[i]
+		if address == "" {
+			address = viper.GetString("peer.address")
+		}
 		dc := &DeliverClient{
 			Client:  client,
-			Address: peerAddresses[i],
+			Address: address,
 		}
 		clients[i] = dc
 	}

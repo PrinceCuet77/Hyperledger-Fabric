@@ -12,12 +12,12 @@ import (
 	"testing"
 
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 )
 
 func TestLoggerLevelsActivateSpec(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		spec                 string
 		expectedLevels       map[string]zapcore.Level
 		expectedDefaultLevel zapcore.Level
@@ -98,17 +98,17 @@ func TestLoggerLevelsActivateSpec(t *testing.T) {
 			ll := &flogging.LoggerLevels{}
 
 			err := ll.ActivateSpec(tc.spec)
-			assert.NoError(t, err)
-			assert.Equal(t, tc.expectedDefaultLevel, ll.DefaultLevel())
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedDefaultLevel, ll.DefaultLevel())
 			for name, lvl := range tc.expectedLevels {
-				assert.Equal(t, lvl, ll.Level(name))
+				require.Equal(t, lvl, ll.Level(name))
 			}
 		})
 	}
 }
 
 func TestLoggerLevelsActivateSpecErrors(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		spec string
 		err  error
 	}{
@@ -123,19 +123,19 @@ func TestLoggerLevelsActivateSpecErrors(t *testing.T) {
 		t.Run(tc.spec, func(t *testing.T) {
 			ll := &flogging.LoggerLevels{}
 			err := ll.ActivateSpec("fatal:a=warn")
-			assert.Nil(t, err)
+			require.Nil(t, err)
 
 			err = ll.ActivateSpec(tc.spec)
-			assert.EqualError(t, err, tc.err.Error())
+			require.EqualError(t, err, tc.err.Error())
 
-			assert.Equal(t, zapcore.FatalLevel, ll.DefaultLevel(), "default should not change")
-			assert.Equal(t, zapcore.WarnLevel, ll.Level("a.b"), "log levels should not change")
+			require.Equal(t, zapcore.FatalLevel, ll.DefaultLevel(), "default should not change")
+			require.Equal(t, zapcore.WarnLevel, ll.Level("a.b"), "log levels should not change")
 		})
 	}
 }
 
 func TestSpec(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		input  string
 		output string
 	}{
@@ -152,14 +152,14 @@ func TestSpec(t *testing.T) {
 	for _, tc := range tests {
 		ll := &flogging.LoggerLevels{}
 		err := ll.ActivateSpec(tc.input)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.Equal(t, tc.output, ll.Spec())
+		require.Equal(t, tc.output, ll.Spec())
 	}
 }
 
 func TestEnabled(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		spec      string
 		enabledAt zapcore.Level
 	}{
@@ -179,13 +179,13 @@ func TestEnabled(t *testing.T) {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			ll := &flogging.LoggerLevels{}
 			err := ll.ActivateSpec(tc.spec)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			for i := flogging.PayloadLevel; i <= zapcore.FatalLevel; i++ {
 				if tc.enabledAt <= i {
-					assert.Truef(t, ll.Enabled(i), "expected level %s and spec %s to be enabled", zapcore.Level(i), tc.spec)
+					require.Truef(t, ll.Enabled(i), "expected level %s and spec %s to be enabled", zapcore.Level(i), tc.spec)
 				} else {
-					assert.False(t, ll.Enabled(i), "expected level %s and spec %s to be disabled", zapcore.Level(i), tc.spec)
+					require.False(t, ll.Enabled(i), "expected level %s and spec %s to be disabled", zapcore.Level(i), tc.spec)
 				}
 			}
 		})

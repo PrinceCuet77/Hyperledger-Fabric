@@ -1,5 +1,6 @@
 /*
 Copyright IBM Corp. All Rights Reserved.
+
 SPDX-License-Identifier: Apache-2.0
 */
 
@@ -136,7 +137,7 @@ type Reprocessor interface {
 }
 
 // ReprocessReadHinter is an optional interface that a `Processor` may choose to implement if it implements Reprocessor.
-// This is similar to as a processor may implement the ReadHinter interface albiet this gets invoked only if Reprocessor
+// This is similar to as a processor may implement the ReadHinter interface albeit this gets invoked only if Reprocessor
 // is used for processing the transaction
 type ReprocessReadHinter interface {
 	ReprocessReadHint(potentialWrites *statedata.WriteHint) *statedata.ReadHint
@@ -150,8 +151,7 @@ type PvtdataSourceHinter interface {
 }
 
 // ChannelConfig gives handle to the channel config
-type ChannelConfig struct {
-}
+type ChannelConfig struct{}
 
 // State exposes functions that helps a `Processor` in retrieving the latest state
 // The `State` passed to the `Process` function represents the world state for the channel as of

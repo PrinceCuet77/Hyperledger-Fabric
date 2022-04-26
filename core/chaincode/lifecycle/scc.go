@@ -19,6 +19,7 @@ import (
 	"github.com/hyperledger/fabric/common/chaincode"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/core/aclmgmt"
+	"github.com/hyperledger/fabric/core/chaincode/implicitcollection"
 	"github.com/hyperledger/fabric/core/chaincode/persistence"
 	"github.com/hyperledger/fabric/core/dispatcher"
 	"github.com/hyperledger/fabric/core/ledger"
@@ -49,6 +50,10 @@ const (
 	// ApproveChaincodeDefinitionForMyOrgFuncName is the chaincode function name
 	// used to approve a chaincode definition for execution by the user's own org
 	ApproveChaincodeDefinitionForMyOrgFuncName = "ApproveChaincodeDefinitionForMyOrg"
+
+	// QueryApprovedChaincodeDefinitionFuncName is the chaincode function name used to
+	// query a approved chaincode definition for the user's own org
+	QueryApprovedChaincodeDefinitionFuncName = "QueryApprovedChaincodeDefinition"
 
 	// CheckCommitReadinessFuncName is the chaincode function name used to check
 	// a specified chaincode definition is ready to be committed. It returns the
@@ -86,6 +91,9 @@ type SCCFunctions interface {
 
 	// ApproveChaincodeDefinitionForOrg records a chaincode definition into this org's implicit collection.
 	ApproveChaincodeDefinitionForOrg(chname, ccname string, cd *ChaincodeDefinition, packageID string, publicState ReadableState, orgState ReadWritableState) error
+
+	// QueryApprovedChaincodeDefinition returns a approved chaincode definition from this org's implicit collection.
+	QueryApprovedChaincodeDefinition(chname, ccname string, sequence int64, publicState ReadableState, orgState ReadableState) (*ApprovedChaincodeDefinition, error)
 
 	// CheckCommitReadiness returns a map containing the orgs
 	// whose orgStates were supplied and whether or not they have approved
@@ -143,7 +151,7 @@ type SCC struct {
 	// Functions provides the backing implementation of lifecycle.
 	Functions SCCFunctions
 
-	// Dispatcher handles the rote protobuf boilerplate for unmarshaling/marshaling
+	// Dispatcher handles the rote protobuf boilerplate for unmarshalling/marshaling
 	// the inputs and outputs of the SCC functions.
 	Dispatcher *dispatcher.Dispatcher
 }
@@ -354,9 +362,9 @@ func (i *Invocation) QueryInstalledChaincodes(input *lb.QueryInstalledChaincodes
 // to which routes to the underlying lifecycle implementation.
 func (i *Invocation) ApproveChaincodeDefinitionForMyOrg(input *lb.ApproveChaincodeDefinitionForMyOrgArgs) (proto.Message, error) {
 	if err := i.validateInput(input.Name, input.Version, input.Collections); err != nil {
-		return nil, err
+		return nil, errors.WithMessage(err, "error validating chaincode definition")
 	}
-	collectionName := ImplicitCollectionNameForOrg(i.SCC.OrgMSPID)
+	collectionName := implicitcollection.NameForOrg(i.SCC.OrgMSPID)
 	var collectionConfig []*pb.CollectionConfig
 	if input.Collections != nil {
 		collectionConfig = input.Collections.Config
@@ -409,6 +417,41 @@ func (i *Invocation) ApproveChaincodeDefinitionForMyOrg(input *lb.ApproveChainco
 	return &lb.ApproveChaincodeDefinitionForMyOrgResult{}, nil
 }
 
+// QueryApprovedChaincodeDefinition is a SCC function that may be dispatched
+// to which routes to the underlying lifecycle implementation.
+func (i *Invocation) QueryApprovedChaincodeDefinition(input *lb.QueryApprovedChaincodeDefinitionArgs) (proto.Message, error) {
+	logger.Debugf("received invocation of QueryApprovedChaincodeDefinition on channel '%s' for chaincode '%s'",
+		i.Stub.GetChannelID(),
+		input.Name,
+	)
+	collectionName := implicitcollection.NameForOrg(i.SCC.OrgMSPID)
+
+	ca, err := i.SCC.Functions.QueryApprovedChaincodeDefinition(
+		i.Stub.GetChannelID(),
+		input.Name,
+		input.Sequence,
+		i.Stub,
+		&ChaincodePrivateLedgerShim{
+			Collection: collectionName,
+			Stub:       i.Stub,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lb.QueryApprovedChaincodeDefinitionResult{
+		Sequence:            ca.Sequence,
+		Version:             ca.EndorsementInfo.Version,
+		EndorsementPlugin:   ca.EndorsementInfo.EndorsementPlugin,
+		ValidationPlugin:    ca.ValidationInfo.ValidationPlugin,
+		ValidationParameter: ca.ValidationInfo.ValidationParameter,
+		InitRequired:        ca.EndorsementInfo.InitRequired,
+		Collections:         ca.Collections,
+		Source:              ca.Source,
+	}, nil
+}
+
 // CheckCommitReadiness is a SCC function that may be dispatched
 // to the underlying lifecycle implementation.
 func (i *Invocation) CheckCommitReadiness(input *lb.CheckCommitReadinessArgs) (proto.Message, error) {
@@ -456,7 +499,7 @@ func (i *Invocation) CheckCommitReadiness(input *lb.CheckCommitReadinessArgs) (p
 // to which routes to the underlying lifecycle implementation.
 func (i *Invocation) CommitChaincodeDefinition(input *lb.CommitChaincodeDefinitionArgs) (proto.Message, error) {
 	if err := i.validateInput(input.Name, input.Version, input.Collections); err != nil {
-		return nil, err
+		return nil, errors.WithMessage(err, "error validating chaincode definition")
 	}
 
 	if i.ApplicationConfig == nil {
@@ -468,7 +511,7 @@ func (i *Invocation) CommitChaincodeDefinition(input *lb.CommitChaincodeDefiniti
 	var myOrg string
 	for _, org := range orgs {
 		opaqueStates = append(opaqueStates, &ChaincodePrivateLedgerShim{
-			Collection: ImplicitCollectionNameForOrg(org.MSPID()),
+			Collection: implicitcollection.NameForOrg(org.MSPID()),
 			Stub:       i.Stub,
 		})
 		if org.MSPID() == i.SCC.OrgMSPID {
@@ -852,7 +895,7 @@ func (i *Invocation) createOpaqueStates() ([]OpaqueState, error) {
 	opaqueStates := make([]OpaqueState, 0, len(orgs))
 	for _, org := range orgs {
 		opaqueStates = append(opaqueStates, &ChaincodePrivateLedgerShim{
-			Collection: ImplicitCollectionNameForOrg(org.MSPID()),
+			Collection: implicitcollection.NameForOrg(org.MSPID()),
 			Stub:       i.Stub,
 		})
 	}

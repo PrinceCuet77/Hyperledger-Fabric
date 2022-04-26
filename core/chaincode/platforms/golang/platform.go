@@ -97,7 +97,7 @@ func (p *Platform) ValidateCodePackage(code []byte) error {
 
 		// only files and directories; no links or special files
 		mode := header.FileInfo().Mode()
-		if mode&^(os.ModeDir|0777) != 0 {
+		if mode&^(os.ModeDir|0o777) != 0 {
 			return fmt.Errorf("illegal file mode in payload: %s", header.Name)
 		}
 	}
@@ -106,7 +106,10 @@ func (p *Platform) ValidateCodePackage(code []byte) error {
 }
 
 // Directory constant copied from tar package.
-const c_ISDIR = 040000
+const c_ISDIR = 0o40000
+
+// Default compression to use for production. Test packages disable compression.
+var gzipCompressionLevel = gzip.DefaultCompression
 
 // GetDeploymentPayload creates a gzip compressed tape archive that contains the
 // required assets to build and run go chaincode.
@@ -145,7 +148,10 @@ func (p *Platform) GetDeploymentPayload(codepath string) ([]byte, error) {
 	}
 
 	payload := bytes.NewBuffer(nil)
-	gw := gzip.NewWriter(payload)
+	gw, err := gzip.NewWriterLevel(payload, gzipCompressionLevel)
+	if err != nil {
+		return nil, err
+	}
 	tw := tar.NewWriter(gw)
 
 	// Create directories so they get sane ownership and permissions
@@ -153,7 +159,7 @@ func (p *Platform) GetDeploymentPayload(codepath string) ([]byte, error) {
 		err := tw.WriteHeader(&tar.Header{
 			Typeflag: tar.TypeDir,
 			Name:     dirname + "/",
-			Mode:     c_ISDIR | 0755,
+			Mode:     c_ISDIR | 0o755,
 			Uid:      500,
 			Gid:      500,
 		})
@@ -188,8 +194,10 @@ func (p *Platform) GenerateDockerfile() (string, error) {
 	return strings.Join(buf, "\n"), nil
 }
 
-const staticLDFlagsOpts = "-ldflags \"-linkmode external -extldflags '-static'\""
-const dynamicLDFlagsOpts = ""
+const (
+	staticLDFlagsOpts  = "-ldflags \"-linkmode external -extldflags '-static'\""
+	dynamicLDFlagsOpts = ""
+)
 
 func getLDFlagsOpts() string {
 	if viper.GetBool("chaincode.golang.dynamicLink") {
@@ -213,7 +221,7 @@ elif [ -f "/chaincode/input/src/%[2]s/go.mod" ]; then
     cd /chaincode/input/src/%[2]s
     GO111MODULE=on go build -v -mod=readonly %[1]s -o /chaincode/output/chaincode .
 else
-    GOPATH=/chaincode/input:$GOPATH go build -v %[1]s -o /chaincode/output/chaincode %[2]s
+    GO111MODULE=off GOPATH=/chaincode/input:$GOPATH go build -v %[1]s -o /chaincode/output/chaincode %[2]s
 fi
 echo Done!
 `
@@ -284,7 +292,7 @@ func DescribeCode(path string) (*CodeDescriptor, error) {
 func describeGopath(importPath string) (*CodeDescriptor, error) {
 	output, err := exec.Command("go", "list", "-f", "{{.Dir}}", importPath).Output()
 	if err != nil {
-		return nil, err
+		return nil, wrapExitErr(err, "'go list' failed")
 	}
 	sourcePath := filepath.Clean(strings.TrimSpace(string(output)))
 
@@ -330,7 +338,7 @@ func moduleInfo(path string) (*ModuleInfo, error) {
 	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to determine module root")
+		return nil, wrapExitErr(err, "failed to determine module root")
 	}
 
 	modExists, err := regularFileExists(strings.TrimSpace(string(output)))
@@ -439,6 +447,10 @@ func findSource(cd *CodeDescriptor) (SourceMap, error) {
 		case cd.Module:
 			name = filepath.Join("src", name)
 		default:
+			// skip top level go.mod and go.sum when not in module mode
+			if name == "go.mod" || name == "go.sum" {
+				return nil
+			}
 			name = filepath.Join("src", cd.Path, name)
 		}
 
@@ -480,11 +492,11 @@ func distributions() []dist {
 	// pre-populate linux architecutures
 	dists := map[dist]bool{
 		{goos: "linux", goarch: "amd64"}: true,
-		{goos: "linux", goarch: "s390x"}: true,
 	}
 
-	// add local OS and ARCH
+	// add local OS and ARCH, linux and current ARCH
 	dists[dist{goos: runtime.GOOS, goarch: runtime.GOARCH}] = true
+	dists[dist{goos: "linux", goarch: runtime.GOARCH}] = true
 
 	var list []dist
 	for d := range dists {

@@ -8,19 +8,15 @@ package node
 
 import (
 	"path/filepath"
+	"time"
 
 	coreconfig "github.com/hyperledger/fabric/core/config"
 	"github.com/hyperledger/fabric/core/ledger"
-	"github.com/hyperledger/fabric/core/ledger/util/couchdb"
 	"github.com/spf13/viper"
 )
 
 func ledgerConfig() *ledger.Config {
 	// set defaults
-	warmAfterNBlocks := 1
-	if viper.IsSet("ledger.state.couchDBConfig.warmIndexesAfterNBlocks") {
-		warmAfterNBlocks = viper.GetInt("ledger.state.couchDBConfig.warmIndexesAfterNBlocks")
-	}
 	internalQueryLimit := 1000
 	if viper.IsSet("ledger.state.couchDBConfig.internalQueryLimit") {
 		internalQueryLimit = viper.GetInt("ledger.state.couchDBConfig.internalQueryLimit")
@@ -41,38 +37,50 @@ func ledgerConfig() *ledger.Config {
 	if viper.IsSet("ledger.pvtdataStore.purgeInterval") {
 		purgeInterval = viper.GetInt("ledger.pvtdataStore.purgeInterval")
 	}
+	deprioritizedDataReconcilerInterval := 60 * time.Minute
+	if viper.IsSet("ledger.pvtdataStore.deprioritizedDataReconcilerInterval") {
+		deprioritizedDataReconcilerInterval = viper.GetDuration("ledger.pvtdataStore.deprioritizedDataReconcilerInterval")
+	}
 
-	rootFSPath := filepath.Join(coreconfig.GetPath("peer.fileSystemPath"), "ledgersData")
+	fsPath := coreconfig.GetPath("peer.fileSystemPath")
+	ledgersDataRootDir := filepath.Join(fsPath, "ledgersData")
+	snapshotsRootDir := viper.GetString("ledger.snapshots.rootDir")
+	if snapshotsRootDir == "" {
+		snapshotsRootDir = filepath.Join(fsPath, "snapshots")
+	}
 	conf := &ledger.Config{
-		RootFSPath: rootFSPath,
+		RootFSPath: ledgersDataRootDir,
 		StateDBConfig: &ledger.StateDBConfig{
 			StateDatabase: viper.GetString("ledger.state.stateDatabase"),
-			CouchDB:       &couchdb.Config{},
+			CouchDB:       &ledger.CouchDBConfig{},
 		},
 		PrivateDataConfig: &ledger.PrivateDataConfig{
-			MaxBatchSize:    collElgProcMaxDbBatchSize,
-			BatchesInterval: collElgProcDbBatchesInterval,
-			PurgeInterval:   purgeInterval,
+			MaxBatchSize:                        collElgProcMaxDbBatchSize,
+			BatchesInterval:                     collElgProcDbBatchesInterval,
+			PurgeInterval:                       purgeInterval,
+			DeprioritizedDataReconcilerInterval: deprioritizedDataReconcilerInterval,
 		},
 		HistoryDBConfig: &ledger.HistoryDBConfig{
 			Enabled: viper.GetBool("ledger.history.enableHistoryDatabase"),
 		},
+		SnapshotsConfig: &ledger.SnapshotsConfig{
+			RootDir: snapshotsRootDir,
+		},
 	}
 
-	if conf.StateDBConfig.StateDatabase == "CouchDB" {
-		conf.StateDBConfig.CouchDB = &couchdb.Config{
-			Address:                 viper.GetString("ledger.state.couchDBConfig.couchDBAddress"),
-			Username:                viper.GetString("ledger.state.couchDBConfig.username"),
-			Password:                viper.GetString("ledger.state.couchDBConfig.password"),
-			MaxRetries:              viper.GetInt("ledger.state.couchDBConfig.maxRetries"),
-			MaxRetriesOnStartup:     viper.GetInt("ledger.state.couchDBConfig.maxRetriesOnStartup"),
-			RequestTimeout:          viper.GetDuration("ledger.state.couchDBConfig.requestTimeout"),
-			InternalQueryLimit:      internalQueryLimit,
-			MaxBatchUpdateSize:      maxBatchUpdateSize,
-			WarmIndexesAfterNBlocks: warmAfterNBlocks,
-			CreateGlobalChangesDB:   viper.GetBool("ledger.state.couchDBConfig.createGlobalChangesDB"),
-			RedoLogPath:             filepath.Join(rootFSPath, "couchdbRedoLogs"),
-			UserCacheSizeMBs:        viper.GetInt("ledger.state.couchDBConfig.cacheSize"),
+	if conf.StateDBConfig.StateDatabase == ledger.CouchDB {
+		conf.StateDBConfig.CouchDB = &ledger.CouchDBConfig{
+			Address:               viper.GetString("ledger.state.couchDBConfig.couchDBAddress"),
+			Username:              viper.GetString("ledger.state.couchDBConfig.username"),
+			Password:              viper.GetString("ledger.state.couchDBConfig.password"),
+			MaxRetries:            viper.GetInt("ledger.state.couchDBConfig.maxRetries"),
+			MaxRetriesOnStartup:   viper.GetInt("ledger.state.couchDBConfig.maxRetriesOnStartup"),
+			RequestTimeout:        viper.GetDuration("ledger.state.couchDBConfig.requestTimeout"),
+			InternalQueryLimit:    internalQueryLimit,
+			MaxBatchUpdateSize:    maxBatchUpdateSize,
+			CreateGlobalChangesDB: viper.GetBool("ledger.state.couchDBConfig.createGlobalChangesDB"),
+			RedoLogPath:           filepath.Join(ledgersDataRootDir, "couchdbRedoLogs"),
+			UserCacheSizeMBs:      viper.GetInt("ledger.state.couchDBConfig.cacheSize"),
 		}
 	}
 	return conf

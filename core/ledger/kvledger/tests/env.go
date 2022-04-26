@@ -7,30 +7,28 @@ SPDX-License-Identifier: Apache-2.0
 package tests
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/sw"
-	"github.com/hyperledger/fabric/common/ledger/blkstorage/fsblkstorage"
-	"github.com/hyperledger/fabric/common/ledger/util"
+	"github.com/hyperledger/fabric/common/ledger/blkstorage"
 	"github.com/hyperledger/fabric/common/metrics/disabled"
+	"github.com/hyperledger/fabric/core/chaincode/implicitcollection"
 	"github.com/hyperledger/fabric/core/chaincode/lifecycle"
-	"github.com/hyperledger/fabric/core/common/privdata"
 	"github.com/hyperledger/fabric/core/container/externalbuilder"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/kvledger"
 	"github.com/hyperledger/fabric/core/ledger/ledgermgmt"
 	corepeer "github.com/hyperledger/fabric/core/peer"
 	"github.com/hyperledger/fabric/core/scc/lscc"
-	"github.com/hyperledger/fabric/msp"
-	"github.com/hyperledger/fabric/msp/mgmt"
-	"github.com/hyperledger/fabric/protoutil"
-	"github.com/stretchr/testify/assert"
+	"github.com/hyperledger/fabric/internal/fileutil"
+	"github.com/stretchr/testify/require"
 )
 
 type rebuildable uint8
@@ -44,27 +42,19 @@ const (
 )
 
 type env struct {
-	assert      *assert.Assertions
+	t           *testing.T
 	initializer *ledgermgmt.Initializer
 	ledgerMgr   *ledgermgmt.LedgerMgr
 }
 
 func newEnv(t *testing.T) *env {
-	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
-	assert.NoError(t, err)
-	return newEnvWithInitializer(t, &ledgermgmt.Initializer{
-		Hasher: cryptoProvider,
-		EbMetadataProvider: &externalbuilder.MetadataProvider{
-			DurablePath: "testdata",
-		},
-	})
+	return newEnvWithInitializer(t, &ledgermgmt.Initializer{})
 }
 
 func newEnvWithInitializer(t *testing.T, initializer *ledgermgmt.Initializer) *env {
 	populateMissingsWithTestDefaults(t, initializer)
-
 	return &env{
-		assert:      assert.New(t),
+		t:           t,
 		initializer: initializer,
 	}
 }
@@ -79,7 +69,7 @@ func (e *env) cleanup() {
 	os.RemoveAll(e.initializer.Config.RootFSPath)
 }
 
-func (e *env) closeAllLedgersAndDrop(flags rebuildable) {
+func (e *env) closeAllLedgersAndRemoveDirContents(flags rebuildable) {
 	if e.ledgerMgr != nil {
 		e.ledgerMgr.Close()
 	}
@@ -89,38 +79,38 @@ func (e *env) closeAllLedgersAndDrop(flags rebuildable) {
 		indexPath := e.getBlockIndexDBPath()
 		logger.Infof("Deleting blockstore indexdb path [%s]", indexPath)
 		e.verifyNonEmptyDirExists(indexPath)
-		e.assert.NoError(os.RemoveAll(indexPath))
+		require.NoError(e.t, fileutil.RemoveContents(indexPath))
 	}
 
 	if flags&rebuildableStatedb == rebuildableStatedb {
 		statedbPath := e.getLevelstateDBPath()
 		logger.Infof("Deleting statedb path [%s]", statedbPath)
 		e.verifyNonEmptyDirExists(statedbPath)
-		e.assert.NoError(os.RemoveAll(statedbPath))
+		require.NoError(e.t, fileutil.RemoveContents(statedbPath))
 	}
 
 	if flags&rebuildableConfigHistory == rebuildableConfigHistory {
 		configHistoryPath := e.getConfigHistoryDBPath()
 		logger.Infof("Deleting configHistory db path [%s]", configHistoryPath)
 		e.verifyNonEmptyDirExists(configHistoryPath)
-		e.assert.NoError(os.RemoveAll(configHistoryPath))
+		require.NoError(e.t, fileutil.RemoveContents(configHistoryPath))
 	}
 
 	if flags&rebuildableBookkeeper == rebuildableBookkeeper {
 		bookkeeperPath := e.getBookkeeperDBPath()
 		logger.Infof("Deleting bookkeeper db path [%s]", bookkeeperPath)
 		e.verifyNonEmptyDirExists(bookkeeperPath)
-		e.assert.NoError(os.RemoveAll(bookkeeperPath))
+		require.NoError(e.t, fileutil.RemoveContents(bookkeeperPath))
 	}
 
 	if flags&rebuildableHistoryDB == rebuildableHistoryDB {
 		historyPath := e.getHistoryDBPath()
 		logger.Infof("Deleting history db path [%s]", historyPath)
 		e.verifyNonEmptyDirExists(historyPath)
-		e.assert.NoError(os.RemoveAll(historyPath))
+		require.NoError(e.t, fileutil.RemoveContents(historyPath))
 	}
 
-	e.verifyRebuilableDoesNotExist(flags)
+	e.verifyRebuilableDirEmpty(flags)
 }
 
 func (e *env) verifyRebuilablesExist(flags rebuildable) {
@@ -141,34 +131,34 @@ func (e *env) verifyRebuilablesExist(flags rebuildable) {
 	}
 }
 
-func (e *env) verifyRebuilableDoesNotExist(flags rebuildable) {
+func (e *env) verifyRebuilableDirEmpty(flags rebuildable) {
 	if flags&rebuildableStatedb == rebuildableStatedb {
-		e.verifyDirDoesNotExist(e.getLevelstateDBPath())
+		e.verifyDirEmpty(e.getLevelstateDBPath())
 	}
 	if flags&rebuildableBlockIndex == rebuildableBlockIndex {
-		e.verifyDirDoesNotExist(e.getBlockIndexDBPath())
+		e.verifyDirEmpty(e.getBlockIndexDBPath())
 	}
 	if flags&rebuildableConfigHistory == rebuildableConfigHistory {
-		e.verifyDirDoesNotExist(e.getConfigHistoryDBPath())
+		e.verifyDirEmpty(e.getConfigHistoryDBPath())
 	}
 	if flags&rebuildableBookkeeper == rebuildableBookkeeper {
-		e.verifyDirDoesNotExist(e.getBookkeeperDBPath())
+		e.verifyDirEmpty(e.getBookkeeperDBPath())
 	}
 	if flags&rebuildableHistoryDB == rebuildableHistoryDB {
-		e.verifyDirDoesNotExist(e.getHistoryDBPath())
+		e.verifyDirEmpty(e.getHistoryDBPath())
 	}
 }
 
 func (e *env) verifyNonEmptyDirExists(path string) {
-	empty, err := util.DirEmpty(path)
-	e.assert.NoError(err)
-	e.assert.False(empty)
+	empty, err := fileutil.DirEmpty(path)
+	require.NoError(e.t, err)
+	require.False(e.t, empty)
 }
 
-func (e *env) verifyDirDoesNotExist(path string) {
-	exists, _, err := util.FileExists(path)
-	e.assert.NoError(err)
-	e.assert.False(exists)
+func (e *env) verifyDirEmpty(path string) {
+	empty, err := fileutil.DirEmpty(path)
+	require.NoError(e.t, err)
+	require.True(e.t, empty)
 }
 
 func (e *env) initLedgerMgmt() {
@@ -179,16 +169,12 @@ func (e *env) closeLedgerMgmt() {
 	e.ledgerMgr.Close()
 }
 
-func (e *env) getLedgerRootPath() string {
-	return e.initializer.Config.RootFSPath
-}
-
 func (e *env) getLevelstateDBPath() string {
 	return kvledger.StateDBPath(e.initializer.Config.RootFSPath)
 }
 
 func (e *env) getBlockIndexDBPath() string {
-	return filepath.Join(kvledger.BlockStorePath(e.initializer.Config.RootFSPath), fsblkstorage.IndexDir)
+	return filepath.Join(kvledger.BlockStorePath(e.initializer.Config.RootFSPath), blkstorage.IndexDir)
 }
 
 func (e *env) getConfigHistoryDBPath() string {
@@ -213,21 +199,14 @@ func populateMissingsWithTestDefaults(t *testing.T, initializer *ledgermgmt.Init
 	}
 
 	if initializer.MembershipInfoProvider == nil {
-		identityDeserializerFactory := func(chainID string) msp.IdentityDeserializer {
-			return mgmt.GetManagerForChain(chainID)
-		}
-		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
-		assert.NoError(t, err)
-		mspID := "test-mspid"
-		membershipInfoProvider := privdata.NewMembershipInfoProvider(mspID, createSelfSignedData(cryptoProvider), identityDeserializerFactory)
-		initializer.MembershipInfoProvider = membershipInfoProvider
+		initializer.MembershipInfoProvider = &membershipInfoProvider{myOrgMSPID: "test-mspid"}
 	}
 
 	if initializer.MetricsProvider == nil {
 		initializer.MetricsProvider = &disabled.Provider{}
 	}
 
-	if initializer.Config == nil {
+	if initializer.Config == nil || initializer.Config.RootFSPath == "" {
 		rootPath, err := ioutil.TempDir("/tmp", "ledgersData")
 		if err != nil {
 			t.Fatalf("Failed to create root directory: %s", err)
@@ -240,7 +219,7 @@ func populateMissingsWithTestDefaults(t *testing.T, initializer *ledgermgmt.Init
 
 	if initializer.Config.StateDBConfig == nil {
 		initializer.Config.StateDBConfig = &ledger.StateDBConfig{
-			StateDatabase: "goleveldb",
+			StateDatabase: ledger.GoLevelDB,
 		}
 	}
 
@@ -252,28 +231,27 @@ func populateMissingsWithTestDefaults(t *testing.T, initializer *ledgermgmt.Init
 
 	if initializer.Config.PrivateDataConfig == nil {
 		initializer.Config.PrivateDataConfig = &ledger.PrivateDataConfig{
-			MaxBatchSize:    5000,
-			BatchesInterval: 1000,
-			PurgeInterval:   100,
+			MaxBatchSize:                        5000,
+			BatchesInterval:                     1000,
+			PurgeInterval:                       100,
+			DeprioritizedDataReconcilerInterval: 120 * time.Minute,
 		}
 	}
-}
+	if initializer.Config.SnapshotsConfig == nil {
+		initializer.Config.SnapshotsConfig = &ledger.SnapshotsConfig{
+			RootDir: filepath.Join(initializer.Config.RootFSPath, "snapshots"),
+		}
+	}
+	if initializer.HashProvider == nil {
+		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
+		require.NoError(t, err)
+		initializer.HashProvider = cryptoProvider
+	}
 
-func createSelfSignedData(cryptoProvider bccsp.BCCSP) protoutil.SignedData {
-	sID := mgmt.GetLocalSigningIdentityOrPanic(cryptoProvider)
-	msg := make([]byte, 32)
-	sig, err := sID.Sign(msg)
-	if err != nil {
-		logger.Panicf("Failed creating self signed data because message signing failed: %v", err)
-	}
-	peerIdentity, err := sID.Serialize()
-	if err != nil {
-		logger.Panicf("Failed creating self signed data because peer identity couldn't be serialized: %v", err)
-	}
-	return protoutil.SignedData{
-		Data:      msg,
-		Signature: sig,
-		Identity:  peerIdentity,
+	if initializer.EbMetadataProvider == nil {
+		initializer.EbMetadataProvider = &externalbuilder.MetadataProvider{
+			DurablePath: "testdata",
+		}
 	}
 }
 
@@ -332,4 +310,23 @@ func createDeployedCCInfoProvider(orgMSPIDs []string) ledger.DeployedChaincodeIn
 		ValidatorCommitter: deployedCCInfoProvider,
 		orgMSPIDs:          orgMSPIDs,
 	}
+}
+
+type membershipInfoProvider struct {
+	myOrgMSPID string
+}
+
+func (p *membershipInfoProvider) AmMemberOf(channelName string, collectionPolicyConfig *peer.CollectionPolicyConfig) (bool, error) {
+	members := convertFromMemberOrgsPolicy(collectionPolicyConfig)
+	fmt.Printf("memebers = %s\n", members)
+	for _, m := range members {
+		if m == p.myOrgMSPID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p *membershipInfoProvider) MyImplicitCollectionName() string {
+	return implicitcollection.NameForOrg(p.myOrgMSPID)
 }

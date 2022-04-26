@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package signer
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
@@ -14,6 +15,7 @@ import (
 	"encoding/pem"
 	"io/ioutil"
 	"math/big"
+	"strings"
 
 	"github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric/bccsp/utils"
@@ -64,11 +66,30 @@ func serializeIdentity(clientCert string, mspID string) ([]byte, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
+	if err := validateEnrollmentCertificate(b); err != nil {
+		return nil, err
+	}
 	sId := &msp.SerializedIdentity{
 		Mspid:   mspID,
 		IdBytes: b,
 	}
 	return protoutil.MarshalOrPanic(sId), nil
+}
+
+func validateEnrollmentCertificate(b []byte) error {
+	bl, _ := pem.Decode(b)
+	if bl == nil {
+		return errors.Errorf("enrollment certificate isn't a valid PEM block")
+	}
+
+	if bl.Type != "CERTIFICATE" {
+		return errors.Errorf("enrollment certificate should be a certificate, got a %s instead", strings.ToLower(bl.Type))
+	}
+
+	if _, err := x509.ParseCertificate(bl.Bytes); err != nil {
+		return errors.Errorf("enrollment certificate is not a valid x509 certificate: %v", err)
+	}
+	return nil
 }
 
 func (si *Signer) Sign(msg []byte) ([]byte, error) {
@@ -85,11 +106,33 @@ func loadPrivateKey(file string) (*ecdsa.PrivateKey, error) {
 	if bl == nil {
 		return nil, errors.Errorf("failed to decode PEM block from %s", file)
 	}
-	key, err := x509.ParsePKCS8PrivateKey(bl.Bytes)
+	key, err := parsePrivateKey(bl.Bytes)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to parse private key from %s", file)
+		return nil, err
 	}
 	return key.(*ecdsa.PrivateKey), nil
+}
+
+// Based on crypto/tls/tls.go but modified for Fabric:
+func parsePrivateKey(der []byte) (crypto.PrivateKey, error) {
+	// OpenSSL 1.0.0 generates PKCS#8 keys.
+	if key, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		switch key := key.(type) {
+		// Fabric only supports ECDSA at the moment.
+		case *ecdsa.PrivateKey:
+			return key, nil
+		default:
+			return nil, errors.Errorf("found unknown private key type (%T) in PKCS#8 wrapping", key)
+		}
+	}
+
+	// OpenSSL ecparam generates SEC1 EC private keys for ECDSA.
+	key, err := x509.ParseECPrivateKey(der)
+	if err != nil {
+		return nil, errors.Errorf("failed to parse private key: %v", err)
+	}
+
+	return key, nil
 }
 
 func signECDSA(k *ecdsa.PrivateKey, digest []byte) (signature []byte, err error) {
@@ -98,7 +141,7 @@ func signECDSA(k *ecdsa.PrivateKey, digest []byte) (signature []byte, err error)
 		return nil, err
 	}
 
-	s, _, err = utils.ToLowS(&k.PublicKey, s)
+	s, err = utils.ToLowS(&k.PublicKey, s)
 	if err != nil {
 		return nil, err
 	}
