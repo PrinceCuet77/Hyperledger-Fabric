@@ -174,7 +174,6 @@ func (p *Peer) AddConfigCallbacks(callbacks ...channelconfig.BundleActor) {
 
 func (p *Peer) openStore(cid string) (*transientstore.Store, error) {
 	logger.Info("---", cid, "---")
-	// cid = "princechannel"
 	logger.Info("---", cid, "---After")
 
 	store, err := p.StoreProvider.OpenStore(cid)
@@ -193,7 +192,6 @@ func (p *Peer) CreateChannel(
 	newLifecycleValidation plugindispatcher.CollectionAndLifecycleResources,
 ) error {
 	logger.Info("---", cid, "---")
-	// cid = "princechannel"
 	logger.Info("---", cid, "---After")
 
 	l, err := p.LedgerMgr.CreateLedger(cid, cb)
@@ -251,7 +249,6 @@ func (p *Peer) createChannel(
 	newLifecycleValidation plugindispatcher.CollectionAndLifecycleResources,
 ) error {
 	logger.Info("---", cid, "---")
-	// cid = "princechannel"
 	logger.Info("---", cid, "---After")
 
 	chanConf, err := RetrievePersistedChannelConfig(l)
@@ -401,7 +398,6 @@ func (p *Peer) createChannel(
 
 func (p *Peer) Channel(cid string) *Channel {
 	logger.Info("---", cid, "---")
-	// cid = "princechannel"
 	logger.Info("---", cid, "---After")
 
 	p.mutex.RLock()
@@ -455,7 +451,6 @@ func (p *Peer) GetStableChannelConfig(cid string) channelconfig.Resources {
 // call returns nil if channel cid has not been created.
 func (p *Peer) GetLedger(cid string) ledger.PeerLedger {
 	logger.Info("---", cid, "---")
-	// cid = "princechannel"
 	logger.Info("---", cid, "---After")
 
 	if c := p.Channel(cid); c != nil {
@@ -489,7 +484,6 @@ func (p *Peer) JoinBySnaphotStatus() *pb.JoinBySnapshotStatus {
 // initChannel takes care to initialize channel after peer joined, for example deploys system CCs
 func (p *Peer) initChannel(cid string) {
 	logger.Info("---", cid, "---")
-	// cid = "princechannel"
 	logger.Info("---", cid, "---After")
 
 	if p.channelInitializer != nil {

@@ -146,7 +146,6 @@ func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 	var err error
 	var chCrtEnv *cb.Envelope
 
-	// channelTxFile = "/home/prince-11209/go/src/github.com/hyperledger/fabric/princechannel.tx"
 	if channelTxFile != "" {
 		if chCrtEnv, err = createChannelFromConfigTx(channelTxFile); err != nil {
 			return err

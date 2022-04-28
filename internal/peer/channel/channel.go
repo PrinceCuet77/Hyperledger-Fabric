@@ -76,8 +76,6 @@ func init() {
 	logger.Info("---init---")
 
 	resetFlags()
-	// channelID = "princechannel"
-	// channelTxFile = "/home/prince-11209/go/src/github.com/hyperledger/fabric/princechannel.tx"
 }
 
 // Explicitly define a method to facilitate tests
