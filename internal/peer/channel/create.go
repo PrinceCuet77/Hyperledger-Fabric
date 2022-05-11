@@ -63,6 +63,8 @@ func createCmd(cf *ChannelCmdFactory) *cobra.Command {
 }
 
 func createChannelFromDefaults(cf *ChannelCmdFactory) (*cb.Envelope, error) {
+	logger.Info("===", channelID, "=== createChannelFromDefaults")
+
 	chCrtEnv, err := encoder.MakeChannelCreationTransaction(
 		channelID,
 		cf.Signer,
@@ -76,6 +78,8 @@ func createChannelFromDefaults(cf *ChannelCmdFactory) (*cb.Envelope, error) {
 }
 
 func createChannelFromConfigTx(configTxFileName string) (*cb.Envelope, error) {
+	logger.Info("===", channelID, "=== createChannelFromConfigTx")
+
 	cftx, err := ioutil.ReadFile(configTxFileName)
 	if err != nil {
 		return nil, ConfigTxFileNotFound(err.Error())
@@ -85,6 +89,8 @@ func createChannelFromConfigTx(configTxFileName string) (*cb.Envelope, error) {
 }
 
 func sanityCheckAndSignConfigTx(envConfigUpdate *cb.Envelope, signer identity.SignerSerializer) (*cb.Envelope, error) {
+	logger.Info("===", channelID, "=== sanityCheckAndSignConfigTx")
+
 	payload, err := protoutil.UnmarshalPayload(envConfigUpdate.Payload)
 	if err != nil {
 		return nil, InvalidCreateTx("bad payload")
@@ -143,9 +149,13 @@ func sanityCheckAndSignConfigTx(envConfigUpdate *cb.Envelope, signer identity.Si
 
 func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 	logger.Info("---sendCreateChainTransaction---")
+	logger.Info("===", channelID, "=== sendCreateChainTransaction")
+
 	var err error
 	var chCrtEnv *cb.Envelope
 
+	// var channelTxFile = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/princechannel2.tx"
+	logger.Info("===> ", channelTxFile, "<===")
 	if channelTxFile != "" {
 		if chCrtEnv, err = createChannelFromConfigTx(channelTxFile); err != nil {
 			return err
@@ -174,35 +184,45 @@ func sendCreateChainTransaction(cf *ChannelCmdFactory) error {
 
 func executeCreate(cf *ChannelCmdFactory) error {
 	logger.Info("---executeCreate---")
+	logger.Info("===", channelID, "=== executeCreate")
 
 	err := sendCreateChainTransaction(cf)
 	if err != nil {
 		return err
 	}
+	logger.Info("===", channelID, "=== executeCreate")
 
 	block, err := getGenesisBlock(cf)
 	if err != nil {
 		return err
 	}
+	logger.Info("===", channelID, "=== executeCreate")
 
 	b, err := proto.Marshal(block)
 	if err != nil {
 		return err
 	}
+	logger.Info("===", channelID, "=== executeCreate and before .block code line")
 
 	file := channelID + ".block"
+	logger.Info("===", channelID, " ", file, "=== executeCreate")
 	if outputBlock != common.UndefinedParamValue {
 		file = outputBlock
 	}
+	logger.Info("===", channelID, "=== executeCreate and after .block code line")
+
 	err = ioutil.WriteFile(file, b, 0o644)
 	if err != nil {
 		return err
 	}
+	logger.Info("===", channelID, "=== executeCreate")
 
 	return nil
 }
 
 func getGenesisBlock(cf *ChannelCmdFactory) (*cb.Block, error) {
+	logger.Info("===", channelID, "=== getGenesisBlock")
+
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
@@ -248,16 +268,20 @@ func create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
 	return executeCreate(cf)
 }
 
-func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
+func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory, channelid string, txFile string) error {
 	logger.Info("---create---")
+	logger.Info("===", channelID, "=== Create")
+
+	// Author: Prince
+	channelID = channelid
+	channelTxFile = txFile
 
 	// the global chainID filled by the "-c" command
 	if channelID == common.UndefinedParamValue {
 		return errors.New("must supply channel ID")
 	}
 
-	// Parsing of the command line is done so silence cmd usage
-	cmd.SilenceUsage = true
+
 
 	var err error
 	if cf == nil {
@@ -266,5 +290,8 @@ func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
 			return err
 		}
 	}
+
+	// Parsing of the command line is done so silence cmd usage
+	// cmd.SilenceUsage = true
 	return executeCreate(cf)
 }

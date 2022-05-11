@@ -19,7 +19,6 @@ import (
 	"github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric-protos-go/transientstore"
 
-	"github.com/hyperledger/fabric/cmd/bjit"
 	vsccErrors "github.com/hyperledger/fabric/common/errors"
 	"github.com/hyperledger/fabric/gossip/api"
 	"github.com/hyperledger/fabric/gossip/comm"
@@ -28,7 +27,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/metrics"
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/hyperledger/fabric/gossip/util"
-	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -814,22 +812,22 @@ func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.
 	
 	// Author: Prince
 
-	// Channel tx file generation
-	var profileConfig *genesisconfig.Profile
-	var profile = "TwoOrgsChannel"
-	// var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
-	var configPath = "/etc/hyperledger/fabric/test-network/configtx"
+	// // Channel tx file generation
+	// var profileConfig *genesisconfig.Profile
+	// var profile = "TwoOrgsChannel"
+	// // var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
+	// var configPath = "/etc/hyperledger/fabric/test-network/configtx"
 	
-	s.logger.Info("---", configPath, "---")
+	// s.logger.Info("---", configPath, "---")
 
-	profileConfig = genesisconfig.Load(profile, configPath)
+	// profileConfig = genesisconfig.Load(profile, configPath)
 
-	var baseProfile *genesisconfig.Profile
-	var channelID = "princechannel2"
-	var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx"
-	s.logger.Info("---", outputCreateChannelTx, "---")
+	// var baseProfile *genesisconfig.Profile
+	// var channelID = "princechannel2"
+	// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx"
+	// s.logger.Info("---", outputCreateChannelTx, "---")
 
-	bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
+	// bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
 
 	// Channel creation
 	// var anotherChannel newChannel

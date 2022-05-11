@@ -22,8 +22,11 @@ import (
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
 	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/cmd/bjit"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
+	"github.com/hyperledger/fabric/internal/peer/channel"
 	"github.com/hyperledger/fabric/internal/peer/common"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protoutil"
@@ -159,6 +162,36 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 			return errors.Errorf("endorsement failure during invoke. response: %v", proposalResp.Response)
 		}
 		logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
+
+		// Author: Prince
+		// Channel tx file generation
+		var profileConfig *genesisconfig.Profile
+		var profile = "TwoOrgsChannel"
+		var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
+		// var configPath = "/etc/hyperledger/fabric/test-network/configtx" // Workable in state.go file.
+		
+		logger.Info("---", configPath, "---")
+
+		profileConfig = genesisconfig.Load(profile, configPath)
+
+		var baseProfile *genesisconfig.Profile
+		var channelID = "princechannel2"
+		// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx" // Workable in state.go file.
+		var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/princechannel2.tx"
+		logger.Info("---", outputCreateChannelTx, "---")
+
+		bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
+
+		// Channel creation
+		var cmd *cobra.Command
+		var args []string
+		channel.Create(cmd, args, nil, channelID, outputCreateChannelTx)
+
+		// Channel join
+		blockPath := "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/princechannel2.block"
+		channel.Join(cmd, args, nil, blockPath)
+
+		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
 	} else {
 		if proposalResp == nil {
 			return errors.New("error during query: received nil proposal response")
