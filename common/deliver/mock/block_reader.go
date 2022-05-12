@@ -7,7 +7,10 @@ import (
 	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/orderer"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
+	"github.com/hyperledger/fabric/common/flogging"
 )
+
+var logger = flogging.MustGetLogger("prince")
 
 type BlockReader struct {
 	HeightStub        func() uint64
@@ -51,6 +54,8 @@ type BlockReader struct {
 }
 
 func (fake *BlockReader) Height() uint64 {
+	logger.Info("-----------Height ---")
+
 	fake.heightMutex.Lock()
 	ret, specificReturn := fake.heightReturnsOnCall[len(fake.heightArgsForCall)]
 	fake.heightArgsForCall = append(fake.heightArgsForCall, struct {
@@ -69,18 +74,24 @@ func (fake *BlockReader) Height() uint64 {
 }
 
 func (fake *BlockReader) HeightCallCount() int {
+	logger.Info("-----------HeightCallCount ---", len(fake.heightArgsForCall))
+
 	fake.heightMutex.RLock()
 	defer fake.heightMutex.RUnlock()
 	return len(fake.heightArgsForCall)
 }
 
 func (fake *BlockReader) HeightCalls(stub func() uint64) {
+	logger.Info("-----------HeightCalls ---")
+
 	fake.heightMutex.Lock()
 	defer fake.heightMutex.Unlock()
 	fake.HeightStub = stub
 }
 
 func (fake *BlockReader) HeightReturns(result1 uint64) {
+	logger.Info("-----------HeightReturns ---")
+
 	fake.heightMutex.Lock()
 	defer fake.heightMutex.Unlock()
 	fake.HeightStub = nil
@@ -123,6 +134,8 @@ func (fake *BlockReader) Iterator(arg1 *orderer.SeekPosition) (blockledger.Itera
 }
 
 func (fake *BlockReader) IteratorCallCount() int {
+	logger.Info("-----------IteratorCallCount ---", len(fake.iteratorArgsForCall))
+
 	fake.iteratorMutex.RLock()
 	defer fake.iteratorMutex.RUnlock()
 	return len(fake.iteratorArgsForCall)
@@ -187,6 +200,8 @@ func (fake *BlockReader) RetrieveBlockByNumber(arg1 uint64) (*common.Block, erro
 }
 
 func (fake *BlockReader) RetrieveBlockByNumberCallCount() int {
+	logger.Info("-----------RetrieveBlockByNumberCallCount ---", len(fake.retrieveBlockByNumberArgsForCall))
+
 	fake.retrieveBlockByNumberMutex.RLock()
 	defer fake.retrieveBlockByNumberMutex.RUnlock()
 	return len(fake.retrieveBlockByNumberArgsForCall)

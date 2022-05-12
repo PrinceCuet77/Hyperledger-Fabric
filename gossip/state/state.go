@@ -539,6 +539,8 @@ func (s *GossipStateProviderImpl) Stop() {
 }
 
 func (s *GossipStateProviderImpl) deliverPayloads() {
+	s.logger.Info("-------deliveryPayloads---------")
+
 	for {
 		select {
 		// Wait for notification that next seq has arrived
@@ -789,8 +791,18 @@ func (s *GossipStateProviderImpl) straggler(currHeight uint64, receivedPayload *
 	return stateDisabled && tooFarBehind && peerDependent
 }
 
+// Author: Prince
+func Cnt() *uint64 {
+	return &BCounter
+}
+
+var BCounter uint64 = 0
+
 func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.PvtDataCollections) error {
-	s.logger.Info("---gs-state.go : commitBlock---")
+	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
+	BCounter = block.Header.Number
+	s.logger.Info("---gs-state.go : commitBlock --- ", BCounter)
+	s.logger.Info("---gs-state.go : commitBlock --- ", Cnt())
 
 	t1 := time.Now()
 
@@ -809,6 +821,8 @@ func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.
 		s.chainID, block.Header.Number, len(block.Data.Data))
 
 	s.stateMetrics.Height.With("channel", s.chainID).Set(float64(block.Header.Number + 1))
+
+	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
 	
 	// Author: Prince
 
@@ -828,20 +842,6 @@ func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.
 	// s.logger.Info("---", outputCreateChannelTx, "---")
 
 	// bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
-
-	// Channel creation
-	// var anotherChannel newChannel
-
-	// var cmd *cobra.Command
-	// var args []string
-	// anotherChannel.create(cmd, args, nil)
-
-	// var cmd *cobra.Command
-	// var args []string
-	// var val1 demochannel.val
-	// val1.Create(cmd, args, nil)
-
-	s.logger.Info("---gs-state.go : All the process done---")
 
 	return nil
 }

@@ -45,6 +45,8 @@ func (nfei *NotFoundErrorIterator) Close() {}
 // XXX This will need to be modified to accept marshaled envelopes
 //     to accommodate non-deterministic marshaling
 func CreateNextBlock(rl Reader, messages []*cb.Envelope) *cb.Block {
+	logger.Info("--------- CreateNextBlock --------------")
+
 	var nextBlockNumber uint64
 	var previousBlockHash []byte
 	var err error
@@ -59,6 +61,8 @@ func CreateNextBlock(rl Reader, messages []*cb.Envelope) *cb.Block {
 		if status != cb.Status_SUCCESS {
 			panic("Error seeking to newest block for chain with non-zero height")
 		}
+
+		logger.Info("--------- CreateNextBlock --------------", block.Header.Number)
 		nextBlockNumber = block.Header.Number + 1
 		previousBlockHash = protoutil.BlockHeaderHash(block.Header)
 	}
@@ -77,6 +81,8 @@ func CreateNextBlock(rl Reader, messages []*cb.Envelope) *cb.Block {
 	block := protoutil.NewBlock(nextBlockNumber, previousBlockHash)
 	block.Header.DataHash = protoutil.BlockDataHash(data)
 	block.Data = data
+
+	logger.Info("--------- CreateNextBlock --------------now--- ", block.Header.Number)
 
 	return block
 }
