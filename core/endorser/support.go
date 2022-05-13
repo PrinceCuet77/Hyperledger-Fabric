@@ -11,6 +11,7 @@ import (
 
 	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/common/channelconfig"
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/aclmgmt"
 	"github.com/hyperledger/fabric/core/aclmgmt/resources"
 	"github.com/hyperledger/fabric/core/chaincode"
@@ -24,6 +25,8 @@ import (
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/pkg/errors"
 )
+
+var logger = flogging.MustGetLogger("prince")
 
 // PeerOperations contains the peer operation required to support the
 // endorser.
@@ -91,6 +94,7 @@ func (s *SupportImpl) GetTransactionByID(chid, txID string) (*pb.ProcessedTransa
 
 // GetLedgerHeight returns ledger height for given channelID
 func (s *SupportImpl) GetLedgerHeight(channelID string) (uint64, error) {
+	logger.Info("======== ces : GetLedgerHeight =========")
 	lgr := s.Peer.GetLedger(channelID)
 	if lgr == nil {
 		return 0, errors.Errorf("failed to look up the ledger for Channel %s", channelID)

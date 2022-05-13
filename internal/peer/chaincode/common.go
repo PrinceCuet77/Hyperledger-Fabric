@@ -25,12 +25,10 @@ import (
 	"github.com/hyperledger/fabric/cmd/bjit"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/common/util"
-	"github.com/hyperledger/fabric/gossip/state"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/internal/peer/channel"
 	"github.com/hyperledger/fabric/internal/peer/common"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
-	"github.com/hyperledger/fabric/orderer/mocks/common/multichannel"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -148,6 +146,7 @@ func (bc *blockCounter) BCCounter(envs []*pcommon.Envelope) uint64 {
 	return bc.number
 }
 // Author: Prince
+var BlockHeight int
 
 func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
 	logger.Info("---ipc-common.go : chaincodeInvokeOrQuery---")
@@ -219,62 +218,8 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		blockPath := "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/princechannel2.block"
 		channel.Join(cmd, args, nil, blockPath)
 
-		// block := &pcommon.Block{}
-		// logger.Info("---------", block.Header.Number, "----------------")
-
-		// Block number count
-		// it, _ := rl.Iterator(&ab.SeekPosition{
-		// 	Type: &ab.SeekPosition_Newest{
-		// 		Newest: &ab.SeekNewest{},
-		// 	},
-		// })
-		// block, status := it.Next()
-		// if status != cb.Status_SUCCESS {
-		// 	panic("Error seeking to newest block for chain with non-zero height")
-		// }
-
-		// Approach: 1
-		// bcounter := blockCounter{number: 0}
-		// bcounter.BCCounter([]*pcommon.Envelope{*pcommon.Envelope})
-
-		// Approach: 2
-		cs := multichannel.ConsenterSupport{}
-		counter := cs.Height()
-		counter2 := cs.HeightVal
-		logger.Info("--------------------------", counter, "------------------", counter2 ,"-------------")
-
-		// Approach: 3
-		cnt := state.BCounter
-		logger.Info("--------------- ", cnt, " ---------- ", state.BCounter, " --------------")
-
-		// var cnt2 = new(uint64)
-		cnt2 := *state.Cnt()
-		logger.Info("--------------- ", cnt2, " ---------- ", *state.Cnt(), " --------------", state.Cnt())
-
-		// Approach: 4
-		// sess, err := n.PeerUserSession(peer, "User1", commands.ChannelInfo{
-		// 	ChannelID:  "princechannel",
-		// 	ClientAuth: n.ClientAuthRequired,
-		// })
-
-		// channelInfoStr := strings.TrimPrefix(string(sess.Buffer().Contents()[:]), "Blockchain info:")
-		channelInfo := pcommon.BlockchainInfo{}
-
-		// json.Unmarshal([]byte(channelInfoStr), &channelInfo)
-		val := int(channelInfo.Height)
-		logger.Info("-----***-------", val, "-----***-----", channelInfo.Height, "-----", channelInfo.GetHeight())
-
-		// Approach: 5
-		// logger.Info("------- Approach: 05 --------------")
-		// si := endorser.SupportImpl{}
-		// firstValue, err := si.GetLedgerHeight("princechannel")
-		// _ = err
-		// logger.Info("--------->", firstValue, "<-------------")
-		
-		// sii := endorser.SupportImpl{}
-		// secValue, err := sii.GetLedgerHeight("princechannl2")
-		// _ = err
-		// logger.Info("--------->", secValue, "<-------------")
+		// Approach: 01
+		// find the solution...
 
 		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
 	} else {

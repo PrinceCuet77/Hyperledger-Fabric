@@ -61,7 +61,7 @@ type GossipServiceAdapter interface {
 	Gossip(msg *gossip.GossipMessage)
 }
 
-//go:generate counterfeiter -o fake/block_verifier.go --fake-name BlockVerifier . BlockVerifier
+//go:generate counterfeiter -o fake/block_verifier.go --fake-name BlockVerifier . LedgerInfoBlockVerifier
 type BlockVerifier interface {
 	VerifyBlock(channelID gossipcommon.ChannelID, blockNum uint64, block *common.Block) error
 }

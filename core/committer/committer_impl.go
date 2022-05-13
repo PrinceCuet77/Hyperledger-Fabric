@@ -71,13 +71,32 @@ func (lc *LedgerCommitter) GetPvtDataAndBlockByNum(seqNum uint64) (*ledger.Block
 	return lc.PeerLedgerSupport.GetPvtDataAndBlockByNum(seqNum, nil)
 }
 
+// Author: Prince
+var BlockNumber *uint64
+var BlockNumber2 uint64
+
 // LedgerHeight returns recently committed block sequence number
 func (lc *LedgerCommitter) LedgerHeight() (uint64, error) {
+	logger.Info("=========== ccc : LedgerHeight ============")
 	info, err := lc.GetBlockchainInfo()
 	if err != nil {
 		logger.Errorf("Cannot get blockchain info, %s", info)
 		return 0, err
 	}
+
+	// Author: Prince
+	logger.Info("====================================== Approach : 01 ============================")
+	// logger.Info("------------------------------------->>>>>", *BlockNumber, " === ", info.Height)
+	BlockNumber = &info.Height
+	BlockNumber2 = info.Height
+	logger.Info("-------->>>>>", *BlockNumber, " === ", &BlockNumber, " === ", info.Height, " ", BlockNumber2)
+	logger.Info("====================================== Approach : 01 ============================")
+
+	// logger.Info("====================================== Approach : 02 ============================")
+	// logger.Info("----------- ", chaincode.BlockHeight, " ----------- ", info.Height, " ------------------")
+	// chaincode.BlockHeight = int(info.Height)
+	// logger.Info("----------- ", chaincode.BlockHeight, " ----------- ", info.Height, " ------------------")
+	// logger.Info("====================================== Approach : 02 ============================")
 
 	return info.Height, nil
 }

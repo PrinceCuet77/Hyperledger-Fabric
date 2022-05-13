@@ -8,6 +8,7 @@ package state
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -792,17 +793,35 @@ func (s *GossipStateProviderImpl) straggler(currHeight uint64, receivedPayload *
 }
 
 // Author: Prince
-func Cnt() *uint64 {
-	return &BCounter
+func Cnt(val *int) *int {
+	fmt.Println("-------------------------------")
+	fmt.Println("-------------------------------")
+	fmt.Println(BCounter, " ", &BCounter)
+	fmt.Println(val, " ", &val)
+	fmt.Println("-------------------------------")
+	fmt.Println("-------------------------------")
+
+	*val = BCounter
+
+	fmt.Println("-------------------------------")
+	fmt.Println("-------------------------------")
+	fmt.Println(BCounter, " ", &BCounter)
+	fmt.Println(val, " ", &val)
+	fmt.Println("-------------------------------")
+	fmt.Println("-------------------------------")	
+
+	return val
 }
 
-var BCounter uint64 = 0
+var BCounter int = 0
 
 func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.PvtDataCollections) error {
 	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
-	BCounter = block.Header.Number
+	BCounter = int(block.Header.Number)
 	s.logger.Info("---gs-state.go : commitBlock --- ", BCounter)
-	s.logger.Info("---gs-state.go : commitBlock --- ", Cnt())
+
+	xx := 0
+	s.logger.Info("---gs-state.go : commitBlock --- ", Cnt(&xx))
 
 	t1 := time.Now()
 
