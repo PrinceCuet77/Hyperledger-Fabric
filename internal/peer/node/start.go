@@ -1280,6 +1280,109 @@ func newOperationsSystem(coreConfig *peer.Config) *operations.System {
 	})
 }
 
+// Author: Prince
+func NewOperationsSystem(coreConfig *peer.Config) *operations.System {
+	return operations.NewSystem(operations.Options{
+		Options: fabhttp.Options{
+			Logger:        flogging.MustGetLogger("peer.operations"),
+			ListenAddress: coreConfig.OperationsListenAddress,
+			TLS: fabhttp.TLS{
+				Enabled:            coreConfig.OperationsTLSEnabled,
+				CertFile:           coreConfig.OperationsTLSCertFile,
+				KeyFile:            coreConfig.OperationsTLSKeyFile,
+				ClientCertRequired: coreConfig.OperationsTLSClientAuthRequired,
+				ClientCACertFiles:  coreConfig.OperationsTLSClientRootCAs,
+			},
+		},
+		Metrics: operations.MetricsOptions{
+			Provider: coreConfig.MetricsProvider,
+			Statsd: &operations.Statsd{
+				Network:       coreConfig.StatsdNetwork,
+				Address:       coreConfig.StatsdAaddress,
+				WriteInterval: coreConfig.StatsdWriteInterval,
+				Prefix:        coreConfig.StatsdPrefix,
+			},
+		},
+		Version: metadata.Version,
+	})
+}
+
+func CreateChaincodeServer(coreConfig *peer.Config, ca tlsgen.CA, peerHostname string) (srv *comm.GRPCServer, ccEndpoint string, err error) {
+	// before potentially setting chaincodeListenAddress, compute chaincode endpoint at first
+	ccEndpoint, err = computeChaincodeEndpoint(coreConfig.ChaincodeAddress, coreConfig.ChaincodeListenAddress, peerHostname)
+	if err != nil {
+		if chaincode.IsDevMode() {
+			// if any error for dev mode, we use 0.0.0.0:7052
+			ccEndpoint = fmt.Sprintf("%s:%d", "0.0.0.0", defaultChaincodePort)
+			logger.Warningf("use %s as chaincode endpoint because of error in computeChaincodeEndpoint: %s", ccEndpoint, err)
+		} else {
+			// for non-dev mode, we have to return error
+			logger.Errorf("Error computing chaincode endpoint: %s", err)
+			return nil, "", err
+		}
+	}
+
+	host, _, err := net.SplitHostPort(ccEndpoint)
+	if err != nil {
+		logger.Panic("Chaincode service host", ccEndpoint, "isn't a valid hostname:", err)
+	}
+
+	cclistenAddress := coreConfig.ChaincodeListenAddress
+	if cclistenAddress == "" {
+		cclistenAddress = fmt.Sprintf("%s:%d", peerHostname, defaultChaincodePort)
+		logger.Warningf("%s is not set, using %s", chaincodeListenAddrKey, cclistenAddress)
+		coreConfig.ChaincodeListenAddress = cclistenAddress
+	}
+
+	config, err := peer.GetServerConfig()
+	if err != nil {
+		logger.Errorf("Error getting server config: %s", err)
+		return nil, "", err
+	}
+
+	// set the logger for the server
+	config.Logger = flogging.MustGetLogger("core.comm").With("server", "ChaincodeServer")
+
+	// Override TLS configuration if TLS is applicable
+	if config.SecOpts.UseTLS {
+		// Create a self-signed TLS certificate with a SAN that matches the computed chaincode endpoint
+		certKeyPair, err := ca.NewServerCertKeyPair(host)
+		if err != nil {
+			logger.Panicf("Failed generating TLS certificate for chaincode service: +%v", err)
+		}
+		config.SecOpts = comm.SecureOptions{
+			UseTLS: true,
+			// Require chaincode shim to authenticate itself
+			RequireClientCert: true,
+			// Trust only client certificates signed by ourselves
+			ClientRootCAs: [][]byte{ca.CertBytes()},
+			// Use our own self-signed TLS certificate and key
+			Certificate: certKeyPair.Cert,
+			Key:         certKeyPair.Key,
+			// No point in specifying server root CAs since this TLS config is only used for
+			// a gRPC server and not a client
+			ServerRootCAs: nil,
+		}
+	}
+
+	// Chaincode keepalive options - static for now
+	chaincodeKeepaliveOptions := comm.KeepaliveOptions{
+		ServerInterval:    time.Duration(2) * time.Hour,    // 2 hours - gRPC default
+		ServerTimeout:     time.Duration(20) * time.Second, // 20 sec - gRPC default
+		ServerMinInterval: time.Duration(1) * time.Minute,  // match ClientInterval
+	}
+	config.KaOpts = chaincodeKeepaliveOptions
+	config.HealthCheckEnabled = true
+
+	srv, err = comm.NewGRPCServer(cclistenAddress, config)
+	if err != nil {
+		logger.Errorf("Error creating GRPC server: %s", err)
+		return nil, "", err
+	}
+
+	return srv, ccEndpoint, nil
+}
+
 func getDockerHostConfig() *docker.HostConfig {
 	dockerKey := func(key string) string { return "vm.docker.hostConfig." + key }
 	getInt64 := func(key string) int64 { return int64(viper.GetInt(dockerKey(key))) }

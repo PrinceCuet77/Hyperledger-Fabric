@@ -25,6 +25,7 @@ import (
 	"github.com/hyperledger/fabric/cmd/bjit"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/core/container/externalbuilder"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/internal/peer/channel"
 	"github.com/hyperledger/fabric/internal/peer/common"
@@ -146,7 +147,9 @@ func (bc *blockCounter) BCCounter(envs []*pcommon.Envelope) uint64 {
 	return bc.number
 }
 // Author: Prince
-var BlockHeight int
+type externalVMAdapter struct {
+	detector *externalbuilder.Detector
+}
 
 func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
 	logger.Info("---ipc-common.go : chaincodeInvokeOrQuery---")
@@ -219,7 +222,9 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		channel.Join(cmd, args, nil, blockPath)
 
 		// Approach: 01
-		// find the solution...
+		height, err := channel.Getinfo(cmd, nil, "princechannel")
+		_ = err
+		logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
 
 		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
 	} else {

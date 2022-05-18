@@ -105,6 +105,8 @@ func (s *SupportImpl) GetLedgerHeight(channelID string) (uint64, error) {
 		return 0, errors.Wrap(err, fmt.Sprintf("failed to obtain information for Channel %s", channelID))
 	}
 
+	logger.Info("Block Number: ", info.Height)
+
 	return info.Height, nil
 }
 

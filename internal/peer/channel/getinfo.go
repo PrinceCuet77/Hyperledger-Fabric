@@ -111,3 +111,38 @@ func getinfo(cmd *cobra.Command, cf *ChannelCmdFactory) error {
 
 	return nil
 }
+
+func Getinfo(cmd *cobra.Command, cf *ChannelCmdFactory, channelid string) (uint64, error) {
+	channelID = channelid
+	
+	// the global chainID filled by the "-c" command
+	if channelID == common.UndefinedParamValue {
+		return 0, errors.New("Must supply channel ID")
+	}
+	// Parsing of the command line is done so silence cmd usage
+	// cmd.SilenceUsage = true
+
+	var err error
+	if cf == nil {
+		cf, err = InitCmdFactory(EndorserRequired, PeerDeliverNotRequired, OrdererNotRequired)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	client := &endorserClient{cf}
+
+	blockChainInfo, err := client.getBlockChainInfo()
+	if err != nil {
+		return 0, err
+	}
+	jsonBytes, err := json.Marshal(blockChainInfo)
+	if err != nil {
+		return 0, err
+	}
+
+	fmt.Printf("Blockchain info: %s\n", string(jsonBytes))
+	logger.Info(">>>>>>>>>>>>>>>>", blockChainInfo.Height, "<<<<<<<<<<<<<<<<<<<<<<")
+
+	return blockChainInfo.Height, nil
+}

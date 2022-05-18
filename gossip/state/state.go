@@ -8,7 +8,6 @@ package state
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -792,37 +791,8 @@ func (s *GossipStateProviderImpl) straggler(currHeight uint64, receivedPayload *
 	return stateDisabled && tooFarBehind && peerDependent
 }
 
-// Author: Prince
-func Cnt(val *int) *int {
-	fmt.Println("-------------------------------")
-	fmt.Println("-------------------------------")
-	fmt.Println(BCounter, " ", &BCounter)
-	fmt.Println(val, " ", &val)
-	fmt.Println("-------------------------------")
-	fmt.Println("-------------------------------")
-
-	*val = BCounter
-
-	fmt.Println("-------------------------------")
-	fmt.Println("-------------------------------")
-	fmt.Println(BCounter, " ", &BCounter)
-	fmt.Println(val, " ", &val)
-	fmt.Println("-------------------------------")
-	fmt.Println("-------------------------------")	
-
-	return val
-}
-
-var BCounter int = 0
-
 func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.PvtDataCollections) error {
 	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
-	BCounter = int(block.Header.Number)
-	s.logger.Info("---gs-state.go : commitBlock --- ", BCounter)
-
-	xx := 0
-	s.logger.Info("---gs-state.go : commitBlock --- ", Cnt(&xx))
-
 	t1 := time.Now()
 
 	// Commit block with available private transactions
@@ -861,6 +831,21 @@ func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.
 	// s.logger.Info("---", outputCreateChannelTx, "---")
 
 	// bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
+
+	// need in future
+	// putState := &peer.PutState{}
+	// 	namespaceID := txContext.NamespaceID
+	// err = txContext.TXSimulator.SetState(namespaceID, putState.Key, putState.Value)
+	// putState.Key = "blockNumber"
+
+	// // converting uint64 to []bytes
+	// b := make([]byte, 8) 
+	// binary.LittleEndian.PutUint64(b, uint64(block.Header.Number)) 
+
+	// putState.Value = b
+
+	// Try and ERROR
+	
 
 	return nil
 }
