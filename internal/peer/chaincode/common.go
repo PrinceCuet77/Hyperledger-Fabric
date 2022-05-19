@@ -152,34 +152,34 @@ type externalVMAdapter struct {
 }
 
 // Author: Prince
-func customChannelCreation(channelID string) {
+func CustomChannelCreation(channelID string) {
 	// Author: Prince
-		// Channel tx file generation
-		var profileConfig *genesisconfig.Profile
-		var profile = "TwoOrgsChannel"
-		var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
-		// var configPath = "/etc/hyperledger/fabric/test-network/configtx" // Workable in state.go file.
+	// Channel tx file generation
+	var profileConfig *genesisconfig.Profile
+	var profile = "TwoOrgsChannel"
+	var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
+	// var configPath = "/etc/hyperledger/fabric/test-network/configtx" // Workable in state.go file.
 		
-		logger.Info("---", configPath, "---")
+	logger.Info("---", configPath, "---")
 
-		profileConfig = genesisconfig.Load(profile, configPath)
+	profileConfig = genesisconfig.Load(profile, configPath)
 
-		var baseProfile *genesisconfig.Profile
-		// var channelID = "princechannel2"
-		// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx" // Workable in state.go file.
-		var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".tx"
-		logger.Info("---", outputCreateChannelTx, "---")
+	var baseProfile *genesisconfig.Profile
+	// var channelID = "princechannel2"
+	// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx" // Workable in state.go file.
+	var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".tx"
+	logger.Info("---", outputCreateChannelTx, "---")
 
-		bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
+	bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
 
-		// Channel creation
-		var cmd *cobra.Command
-		var args []string
-		channel.Create(cmd, args, nil, channelID, outputCreateChannelTx)
+	// Channel creation
+	var cmd *cobra.Command
+	var args []string
+	channel.Create(cmd, args, nil, channelID, outputCreateChannelTx)
 
-		// Channel join
-		blockPath := "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".block"
-		channel.Join(cmd, args, nil, blockPath)
+	// Channel join
+	blockPath := "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".block"
+	channel.Join(cmd, args, nil, blockPath)
 }
 
 func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
@@ -225,16 +225,16 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
 
 		// Automate the channel creation part
-		customChannelCreation("princechannel2")
+		CustomChannelCreation("shardchannel2")
 		
 		// Block number or height of ledger
-		height, err := channel.Getinfo(cmd, nil, "princechannel")
+		height, err := channel.Getinfo(cmd, nil, "shardchannel")
 		_ = err
 		logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
 		
 		// Sharding
 		if height > 2 {
-			customChannelCreation("princechannel3")
+			CustomChannelCreation("shardchannel3")
 		}
 
 		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
