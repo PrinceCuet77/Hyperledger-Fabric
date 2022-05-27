@@ -225,7 +225,7 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
 
 		// Automate the channel creation part
-		CustomChannelCreation("shardchannel2")
+		// CustomChannelCreation("shardchannel2")
 		
 		// Block number or height of ledger
 		height, err := channel.Getinfo(cmd, nil, "shardchannel")
@@ -233,9 +233,9 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
 		
 		// Sharding
-		if height > 2 {
-			CustomChannelCreation("shardchannel3")
-		}
+		// if height > 2 {
+		// 	CustomChannelCreation("shardchannel3")
+		// }
 
 		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
 	} else {

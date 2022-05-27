@@ -9,7 +9,6 @@ package channel
 import (
 	"fmt"
 	"io/ioutil"
-	"strconv"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -74,13 +73,13 @@ func createCmd(cf *ChannelCmdFactory) *cobra.Command {
 	logger.Info("---createCmd---")
 
 	// Author: Prince
-	for i := 1; i <= 3; i++ {
-		channelID = "shardchannel"
-		n := strconv.Itoa(i)
-		channelID = channelID + n
-		logger.Info("Current Channel Name: ", channelID)
-		bootstrapChannels(channelID)
-	}
+	// for i := 1; i <= 3; i++ {
+	// 	channelID = "shardchannel"
+	// 	n := strconv.Itoa(i)
+	// 	channelID = channelID + n
+	// 	logger.Info("Current Channel Name: ", channelID)
+	// 	bootstrapChannels(channelID)
+	// }
 
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -322,7 +321,8 @@ func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory, channelid 
 		return errors.New("must supply channel ID")
 	}
 
-
+	// Parsing of the command line is done so silence cmd usage
+	// cmd.SilenceUsage = true
 
 	var err error
 	if cf == nil {
@@ -331,8 +331,5 @@ func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory, channelid 
 			return err
 		}
 	}
-
-	// Parsing of the command line is done so silence cmd usage
-	// cmd.SilenceUsage = true
 	return executeCreate(cf)
 }
