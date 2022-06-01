@@ -58,8 +58,7 @@ func doOutputBlock(config *genesisconfig.Profile, channelID string, outputBlock 
 }
 
 func doOutputChannelCreateTx(conf, baseProfile *genesisconfig.Profile, channelID string, outputChannelCreateTx string) error {
-	logger.Info("---cc-main.go : doOutputChannelCreateTx---")
-	logger.Info("---Generating new channel configtx---")
+	logger.Info("Generating new channel configtx")
 
 	var configtx *cb.Envelope
 	var err error
@@ -72,7 +71,7 @@ func doOutputChannelCreateTx(conf, baseProfile *genesisconfig.Profile, channelID
 		return err
 	}
 
-	logger.Info("---Writing new channel tx---")
+	logger.Info("Writing new channel tx")
 	err = writeFile(outputChannelCreateTx, protoutil.MarshalOrPanic(configtx), 0o640)
 	if err != nil {
 		return fmt.Errorf("error writing channel create tx: %s", err)

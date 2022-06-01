@@ -120,8 +120,6 @@ func (c *ConfigParser) getConfigFile() string {
 
 // ReadInConfig reads and unmarshals the config file.
 func (c *ConfigParser) ReadInConfig() error {
-	logger.Info("---cv-config_util.go : ReadInConfig---")
-
 	cf := c.getConfigFile()
 	logger.Info("-----File path: ", cf)
 	// cf = "/home/prince-11209/go/src/github.com/hyperledger/fabric/configtx.yaml"

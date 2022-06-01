@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -153,21 +154,23 @@ type externalVMAdapter struct {
 
 // Author: Prince
 func CustomChannelCreation(channelID string) {
-	// Author: Prince
+	logger.Info("Creating: =========================================", channelID)
+
 	// Channel tx file generation
 	var profileConfig *genesisconfig.Profile
 	var profile = "TwoOrgsChannel"
-	var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
+	// var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
+	var configPath = "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/configtx"
 	// var configPath = "/etc/hyperledger/fabric/test-network/configtx" // Workable in state.go file.
 		
-	logger.Info("---", configPath, "---")
+	// logger.Info("---", configPath, "---")
 
 	profileConfig = genesisconfig.Load(profile, configPath)
 
 	var baseProfile *genesisconfig.Profile
 	// var channelID = "princechannel2"
 	// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx" // Workable in state.go file.
-	var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".tx"
+	var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/" + channelID + ".tx"
 	logger.Info("---", outputCreateChannelTx, "---")
 
 	bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
@@ -178,13 +181,19 @@ func CustomChannelCreation(channelID string) {
 	channel.Create(cmd, args, nil, channelID, outputCreateChannelTx)
 
 	// Channel join
-	blockPath := "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".block"
+	blockPath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/" + channelID + ".block"
+	logger.Info("---", blockPath, "---")
 	channel.Join(cmd, args, nil, blockPath)
 }
 
-func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
-	logger.Info("---ipc-common.go : chaincodeInvokeOrQuery---")
+// var currentChannelID string
+var currentShard = map[string]int {
+	"channel0shard0": 0,
+	"channel1shard0": 0,
+	"channel2shard0": 0,
+}
 
+func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
 	spec, err := getChaincodeSpec(cmd)
 	if err != nil {
 		return err
@@ -210,6 +219,81 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 	}
 
 	if invoke {
+		// Author: Prince
+		// View the condition of currentShard
+		logger.Info("Current Condition: ", currentShard)
+
+		if channelID == "channel0shard0" {
+			// Block number or height of the ledger on 'channel0shard0' channel
+			height0, err := channel.Getinfo(cmd, nil, channelID)
+			_ = err
+			logger.Info("Height: ", height0, " of the channel: ", channelID)
+
+			if height0 > 3 {
+				// Increasing the shard number regarding channelID
+				value := currentShard[channelID] + 1
+				currentShard[channelID] = value
+
+				logger.Info("Value: ", value, " & And: ", currentShard[channelID])
+				logger.Info("Current Condition: ", currentShard)
+				logger.Info("Current Shard: ", currentShard[channelID])
+
+				// String conversion of shard number
+				currentShardStr := strconv.Itoa(currentShard[channelID])
+				newChannelID := "channel0shard" + currentShardStr
+				logger.Info("New channelID: ", newChannelID)
+
+				CustomChannelCreation(newChannelID)
+				logger.Info("Modification done for channel: ", newChannelID)
+			}
+		} else if channelID == "channel1shard0" {
+			// Block number or height of the ledger on 'channel1shard0' channel
+			height1, err := channel.Getinfo(cmd, nil, channelID)
+			_ = err
+			logger.Info("Height: ", height1, " of the channel: ", channelID)
+
+			if height1 > 3 {
+				// Increasing the shard number regarding channelID
+				value := currentShard[channelID] + 1
+				currentShard[channelID] = value
+				
+				logger.Info("Value: ", value, " & And: ", currentShard[channelID])
+				logger.Info("Current Condition: ", currentShard)
+				logger.Info("Current Shard: ", currentShard[channelID])
+
+				// String conversion of shard number
+				currentShardStr := strconv.Itoa(currentShard[channelID])
+				newChannelID := "channel1shard" + currentShardStr
+				logger.Info("New channelID: ", newChannelID)
+
+				CustomChannelCreation(newChannelID)
+				logger.Info("Modification done for channel: ", newChannelID)
+			}
+		} else if channelID == "channel2shard0" {
+			// Block number or height of the ledger on 'channel2shard0' channel
+			height2, err := channel.Getinfo(cmd, nil, channelID)
+			_ = err
+			logger.Info("Height: ", height2, " of the channel: ", channelID)
+
+			if height2 > 3 {
+				// Increasing the shard number regarding channelID
+				value := currentShard[channelID] + 1
+				currentShard[channelID] = value
+
+				logger.Info("Value: ", value, " & And: ", currentShard[channelID])
+				logger.Info("Current Condition: ", currentShard)
+				logger.Info("Current Shard: ", currentShard[channelID])
+
+				// String conversion of shard number
+				currentShardStr := strconv.Itoa(currentShard[channelID])
+				newChannelID := "channel2shard" + currentShardStr
+				logger.Info("New channelID: ", newChannelID)
+
+				CustomChannelCreation(newChannelID)
+				logger.Info("Modification done for channel: ", newChannelID)
+			}
+		}
+
 		logger.Debugf("ESCC invoke result: %v", proposalResp)
 		pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
 		if err != nil {
@@ -225,7 +309,7 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
 
 		// Automate the channel creation part
-		// CustomChannelCreation("shardchannel2")
+		CustomChannelCreation("shardchannel2")
 		
 		// Block number or height of ledger
 		height, err := channel.Getinfo(cmd, nil, "shardchannel")
@@ -233,9 +317,9 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
 		
 		// Sharding
-		// if height > 2 {
-		// 	CustomChannelCreation("shardchannel3")
-		// }
+		if height > 2 {
+			CustomChannelCreation("shardchannel3")
+		}
 
 		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
 	} else {

@@ -539,7 +539,6 @@ func (s *GossipStateProviderImpl) Stop() {
 }
 
 func (s *GossipStateProviderImpl) deliverPayloads() {
-	s.logger.Info("-------deliveryPayloads---------")
 
 	for {
 		select {
@@ -792,7 +791,6 @@ func (s *GossipStateProviderImpl) straggler(currHeight uint64, receivedPayload *
 }
 
 func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.PvtDataCollections) error {
-	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
 	t1 := time.Now()
 
 	// Commit block with available private transactions

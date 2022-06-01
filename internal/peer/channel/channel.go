@@ -73,8 +73,6 @@ func AddFlags(cmd *cobra.Command) {
 var flags *pflag.FlagSet
 
 func init() {
-	logger.Info("---init---")
-
 	resetFlags()
 }
 
@@ -92,8 +90,6 @@ func resetFlags() {
 }
 
 func attachFlags(cmd *cobra.Command, names []string) {
-	logger.Info("ipc-channel.go : attachFlags---")
-
 	cmdFlags := cmd.Flags()
 	for _, name := range names {
 		if flag := flags.Lookup(name); flag != nil {
