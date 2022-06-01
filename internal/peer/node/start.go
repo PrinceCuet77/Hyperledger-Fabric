@@ -110,8 +110,6 @@ const (
 var chaincodeDevMode bool
 
 func startCmd() *cobra.Command {
-	logger.Info("=========== startCmd ============")
-	
 	// Set the flags on the node start command.
 	flags := nodeStartCmd.Flags()
 	flags.BoolVarP(&chaincodeDevMode, "peer-chaincodedev", "", false, "start peer in chaincode development mode")
@@ -143,7 +141,6 @@ func (e externalVMAdapter) Build(
 	mdBytes []byte,
 	codePackage io.Reader,
 	) (container.Instance, error) {
-	logger.Info("=========== Build 1 ============")
 	i, err := e.detector.Build(ccid, mdBytes, codePackage)
 	if err != nil {
 		return nil, err
@@ -159,7 +156,6 @@ func (e externalVMAdapter) Build(
 type disabledDockerBuilder struct{}
 
 func (disabledDockerBuilder) Build(string, *persistence.ChaincodePackageMetadata, io.Reader) (container.Instance, error) {
-	logger.Info("=========== Build 2 ============")
 	return nil, errors.New("docker build is disabled")
 }
 
@@ -168,7 +164,6 @@ type endorserChannelAdapter struct {
 }
 
 func (e endorserChannelAdapter) Channel(channelID string) *endorser.Channel {
-	logger.Info("=========== Channel ============ ", channelID, " =====")
 	if peerChannel := e.peer.Channel(channelID); peerChannel != nil {
 		return &endorser.Channel{
 			IdentityDeserializer: peerChannel.MSPManager(),
@@ -184,17 +179,14 @@ type custodianLauncherAdapter struct {
 }
 
 func (c custodianLauncherAdapter) Launch(ccid string) error {
-	logger.Info("=========== Launch ============")
 	return c.launcher.Launch(ccid, c.streamHandler)
 }
 
 func (c custodianLauncherAdapter) Stop(ccid string) error {
-	logger.Info("=========== Stop ============")
 	return c.launcher.Stop(ccid)
 }
 
 func serve(args []string) error {
-	logger.Info("=========== serve ============")
 	// currently the peer only works with the standard MSP
 	// because in certain scenarios the MSP has to make sure
 	// that from a single credential you only have a single 'identity'.
@@ -920,7 +912,6 @@ func serve(args []string) error {
 }
 
 func handleSignals(handlers map[os.Signal]func()) {
-	logger.Info("=========== handleSignals ============")
 	var signals []os.Signal
 	for sig := range handlers {
 		signals = append(signals, sig)
@@ -938,7 +929,6 @@ func handleSignals(handlers map[os.Signal]func()) {
 	}
 	
 func localPolicy(policyObject proto.Message) policies.Policy {
-	logger.Info("=========== localPolicy ============")
 	localMSP := mgmt.GetLocalMSP(factory.GetDefault())
 	pp := cauthdsl.NewPolicyProvider(localMSP)
 	policy, _, err := pp.NewPolicy(protoutil.MarshalOrPanic(policyObject))
@@ -949,7 +939,6 @@ func localPolicy(policyObject proto.Message) policies.Policy {
 }
 
 func createSelfSignedData(sID msp.SigningIdentity) protoutil.SignedData {
-	logger.Info("=========== createSelfSignedData ============")
 	msg := make([]byte, 32)
 	sig, err := sID.Sign(msg)
 	if err != nil {
