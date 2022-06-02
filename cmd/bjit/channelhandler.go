@@ -11,6 +11,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
+	"github.com/hyperledger/fabric/internal/peer/lifecycle/chaincode"
 	"github.com/hyperledger/fabric/protoutil"
 )
 
@@ -62,4 +63,8 @@ func dirExists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+func QueryCustomCall() error {
+	return chaincode.QueryCustom()
 }

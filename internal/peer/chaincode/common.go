@@ -123,30 +123,30 @@ func (c *chaincodeInput) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Author: Prince
-type blockCounter struct {
-	number uint64
+// // Author: Prince
+// type blockCounter struct {
+// 	number uint64
 
-	// customLogger *flogging.FabricLogger
-}
+// 	// customLogger *flogging.FabricLogger
+// }
 
-func (bc *blockCounter) BCCounter(envs []*pcommon.Envelope) uint64 {
-	data := &pcommon.BlockData{
-		Data: make([][]byte, len(envs)),
-	}
+// func (bc *blockCounter) BCCounter(envs []*pcommon.Envelope) uint64 {
+// 	data := &pcommon.BlockData{
+// 		Data: make([][]byte, len(envs)),
+// 	}
 
-	var err error
-	_ = err
-	for i, env := range envs {
-		data.Data[i], err = proto.Marshal(env)
-		_ = err
-		// if err != nil {
-		// 	bc.customLogger.Panicf("Could not marshal envelope: %s", err)
-		// }
-	}
+// 	var err error
+// 	_ = err
+// 	for i, env := range envs {
+// 		data.Data[i], err = proto.Marshal(env)
+// 		_ = err
+// 		// if err != nil {
+// 		// 	bc.customLogger.Panicf("Could not marshal envelope: %s", err)
+// 		// }
+// 	}
 
-	return bc.number
-}
+// 	return bc.number
+// }
 
 type externalVMAdapter struct {
 	detector *externalbuilder.Detector
@@ -184,6 +184,9 @@ func CustomChannelCreation(channelID string) {
 	blockPath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/" + channelID + ".block"
 	logger.Info("---", blockPath, "---")
 	channel.Join(cmd, args, nil, blockPath)
+
+	err := bjit.QueryCustomCall()
+	_ = err
 }
 
 // var currentChannelID string

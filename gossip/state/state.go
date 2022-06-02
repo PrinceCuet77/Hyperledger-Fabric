@@ -27,6 +27,7 @@ import (
 	"github.com/hyperledger/fabric/gossip/metrics"
 	"github.com/hyperledger/fabric/gossip/protoext"
 	"github.com/hyperledger/fabric/gossip/util"
+	customlifecycle "github.com/hyperledger/fabric/internal/peer/lifecycle/chaincode"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -810,6 +811,9 @@ func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.
 	s.stateMetrics.Height.With("channel", s.chainID).Set(float64(block.Header.Number + 1))
 
 	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
+
+	err := customlifecycle.QueryCustom()
+	_ = err
 	
 	// Author: Prince
 

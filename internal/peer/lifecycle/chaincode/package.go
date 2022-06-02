@@ -115,6 +115,24 @@ func (p *Packager) PackageChaincode(args []string) error {
 	return p.Package()
 }
 
+// func (p *Packager) PackageChaincodeCustom(args []string) error {
+// 	if p.Command != nil {
+// 		// Parsing of the command line is done so silence cmd usage
+// 		p.Command.SilenceUsage = true
+// 	}
+
+// 	// if len(args) != 1 {
+// 	// 	return errors.New("invalid number of args. expected only the output file")
+// 	// }
+
+// 	outputFile := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/fabcar.tar.gz"
+// 	p.setInput(outputFile)
+	
+// 	// p.setInput(args[0])
+
+// 	return p.Package()
+// }
+
 func (p *Packager) setInput(outputFile string) {
 	p.Input = &PackageInput{
 		OutputFile: outputFile,
@@ -122,6 +140,18 @@ func (p *Packager) setInput(outputFile string) {
 		Type:       chaincodeLang,
 		Label:      packageLabel,
 	}
+
+	// Author: Prince
+	// chaincodePath = "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/chaincode/fabcar/go"
+	// chaincodeLang = "golang"
+	// packageLabel = "fabcar_1"
+
+	// p.Input = &PackageInput{
+	// 	OutputFile: outputFile,
+	// 	Path:       chaincodePath,
+	// 	Type:       chaincodeLang,
+	// 	Label:      packageLabel,
+	// }
 }
 
 // Package packages chaincodes into the package type,
