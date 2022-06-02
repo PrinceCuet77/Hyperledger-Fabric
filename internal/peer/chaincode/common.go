@@ -187,11 +187,20 @@ func CustomChannelCreation(channelID string) {
 }
 
 // var currentChannelID string
-var currentShard = map[string]int {
-	"channel0shard0": 0,
-	"channel1shard0": 0,
-	"channel2shard0": 0,
-}
+// var currentShard = map[string]int {
+// 	"channel0shard0": 0,
+// 	"channel1shard0": 0,
+// 	"channel2shard0": 0,
+// }
+
+// Author: Prince
+// Tracking the sharding number of the boostrap channels 
+var channel0shard int = 0
+var channel1shard int = 0
+var channel2shard int = 0
+
+// Fixed the limit of the height
+const HEIGHT_LIMIT int = 3
 
 func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
 	spec, err := getChaincodeSpec(cmd)
@@ -220,79 +229,99 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 
 	if invoke {
 		// Author: Prince
-		// View the condition of currentShard
-		logger.Info("Current Condition: ", currentShard)
+		if channelID[:8] == "channel0" {
+			logger.Info("Current channelID : ", channelID)
+			logger.Info("Current shard of channel0shard0: ", channel0shard)
 
-		if channelID == "channel0shard0" {
-			// Block number or height of the ledger on 'channel0shard0' channel
+			// Block number or height of the ledger on 'channel0shard' related sharding channel
 			height0, err := channel.Getinfo(cmd, nil, channelID)
 			_ = err
 			logger.Info("Height: ", height0, " of the channel: ", channelID)
 
-			if height0 > 3 {
-				// Increasing the shard number regarding channelID
-				value := currentShard[channelID] + 1
-				currentShard[channelID] = value
+			if height0 >= uint64(HEIGHT_LIMIT) {
+				// Tracking the current sharding number of related 'channel0shard0' channel
+				channel0shard++
+				logger.Info("Increment of the shard of channel0shard0: ", channel0shard)
 
-				logger.Info("Value: ", value, " & And: ", currentShard[channelID])
-				logger.Info("Current Condition: ", currentShard)
-				logger.Info("Current Shard: ", currentShard[channelID])
+				// Setting the next channelID
+				nextChannelID := "channel0shard" + strconv.Itoa(channel0shard)
+				logger.Info("Next channelID : ", nextChannelID)
 
-				// String conversion of shard number
-				currentShardStr := strconv.Itoa(currentShard[channelID])
-				newChannelID := "channel0shard" + currentShardStr
-				logger.Info("New channelID: ", newChannelID)
-
-				CustomChannelCreation(newChannelID)
-				logger.Info("Modification done for channel: ", newChannelID)
-			}
-		} else if channelID == "channel1shard0" {
-			// Block number or height of the ledger on 'channel1shard0' channel
-			height1, err := channel.Getinfo(cmd, nil, channelID)
-			_ = err
-			logger.Info("Height: ", height1, " of the channel: ", channelID)
-
-			if height1 > 3 {
-				// Increasing the shard number regarding channelID
-				value := currentShard[channelID] + 1
-				currentShard[channelID] = value
-				
-				logger.Info("Value: ", value, " & And: ", currentShard[channelID])
-				logger.Info("Current Condition: ", currentShard)
-				logger.Info("Current Shard: ", currentShard[channelID])
-
-				// String conversion of shard number
-				currentShardStr := strconv.Itoa(currentShard[channelID])
-				newChannelID := "channel1shard" + currentShardStr
-				logger.Info("New channelID: ", newChannelID)
-
-				CustomChannelCreation(newChannelID)
-				logger.Info("Modification done for channel: ", newChannelID)
-			}
-		} else if channelID == "channel2shard0" {
-			// Block number or height of the ledger on 'channel2shard0' channel
-			height2, err := channel.Getinfo(cmd, nil, channelID)
-			_ = err
-			logger.Info("Height: ", height2, " of the channel: ", channelID)
-
-			if height2 > 3 {
-				// Increasing the shard number regarding channelID
-				value := currentShard[channelID] + 1
-				currentShard[channelID] = value
-
-				logger.Info("Value: ", value, " & And: ", currentShard[channelID])
-				logger.Info("Current Condition: ", currentShard)
-				logger.Info("Current Shard: ", currentShard[channelID])
-
-				// String conversion of shard number
-				currentShardStr := strconv.Itoa(currentShard[channelID])
-				newChannelID := "channel2shard" + currentShardStr
-				logger.Info("New channelID: ", newChannelID)
-
-				CustomChannelCreation(newChannelID)
-				logger.Info("Modification done for channel: ", newChannelID)
+				// Creatint a new channel and Joining the peers of the organization of that channel
+				CustomChannelCreation(nextChannelID)
 			}
 		}
+
+		// if channelID == "channel0shard0" {
+		// 	// Block number or height of the ledger on 'channel0shard0' channel
+		// 	height0, err := channel.Getinfo(cmd, nil, channelID)
+		// 	_ = err
+		// 	logger.Info("Height: ", height0, " of the channel: ", channelID)
+
+		// 	if height0 > 3 {
+		// 		// Increasing the shard number regarding channelID
+		// 		value := currentShard[channelID] + 1
+		// 		currentShard[channelID] = value
+
+		// 		logger.Info("Value: ", value, " & And: ", currentShard[channelID])
+		// 		logger.Info("Current Condition: ", currentShard)
+		// 		logger.Info("Current Shard: ", currentShard[channelID])
+
+		// 		// String conversion of shard number
+		// 		currentShardStr := strconv.Itoa(currentShard[channelID])
+		// 		newChannelID := "channel0shard" + currentShardStr
+		// 		logger.Info("New channelID: ", newChannelID)
+
+		// 		CustomChannelCreation(newChannelID)
+		// 		logger.Info("Modification done for channel: ", newChannelID)
+		// 	}
+		// } else if channelID == "channel1shard0" {
+		// 	// Block number or height of the ledger on 'channel1shard0' channel
+		// 	height1, err := channel.Getinfo(cmd, nil, channelID)
+		// 	_ = err
+		// 	logger.Info("Height: ", height1, " of the channel: ", channelID)
+
+		// 	if height1 > 3 {
+		// 		// Increasing the shard number regarding channelID
+		// 		value := currentShard[channelID] + 1
+		// 		currentShard[channelID] = value
+				
+		// 		logger.Info("Value: ", value, " & And: ", currentShard[channelID])
+		// 		logger.Info("Current Condition: ", currentShard)
+		// 		logger.Info("Current Shard: ", currentShard[channelID])
+
+		// 		// String conversion of shard number
+		// 		currentShardStr := strconv.Itoa(currentShard[channelID])
+		// 		newChannelID := "channel1shard" + currentShardStr
+		// 		logger.Info("New channelID: ", newChannelID)
+
+		// 		CustomChannelCreation(newChannelID)
+		// 		logger.Info("Modification done for channel: ", newChannelID)
+		// 	}
+		// } else if channelID == "channel2shard0" {
+		// 	// Block number or height of the ledger on 'channel2shard0' channel
+		// 	height2, err := channel.Getinfo(cmd, nil, channelID)
+		// 	_ = err
+		// 	logger.Info("Height: ", height2, " of the channel: ", channelID)
+
+		// 	if height2 > 3 {
+		// 		// Increasing the shard number regarding channelID
+		// 		value := currentShard[channelID] + 1
+		// 		currentShard[channelID] = value
+
+		// 		logger.Info("Value: ", value, " & And: ", currentShard[channelID])
+		// 		logger.Info("Current Condition: ", currentShard)
+		// 		logger.Info("Current Shard: ", currentShard[channelID])
+
+		// 		// String conversion of shard number
+		// 		currentShardStr := strconv.Itoa(currentShard[channelID])
+		// 		newChannelID := "channel2shard" + currentShardStr
+		// 		logger.Info("New channelID: ", newChannelID)
+
+		// 		CustomChannelCreation(newChannelID)
+		// 		logger.Info("Modification done for channel: ", newChannelID)
+		// 	}
+		// }
 
 		logger.Debugf("ESCC invoke result: %v", proposalResp)
 		pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
@@ -309,17 +338,17 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
 
 		// Automate the channel creation part
-		CustomChannelCreation("shardchannel2")
+		// CustomChannelCreation("shardchannel2")
 		
 		// Block number or height of ledger
-		height, err := channel.Getinfo(cmd, nil, "shardchannel")
-		_ = err
-		logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
+		// height, err := channel.Getinfo(cmd, nil, "shardchannel")
+		// _ = err
+		// logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
 		
 		// Sharding
-		if height > 2 {
-			CustomChannelCreation("shardchannel3")
-		}
+		// if height > 2 {
+		// 	CustomChannelCreation("shardchannel3")
+		// }
 
 		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
 	} else {
