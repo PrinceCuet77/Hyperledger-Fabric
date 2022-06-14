@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -123,55 +124,25 @@ func (c *chaincodeInput) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Author: Prince
-type blockCounter struct {
-	number uint64
-
-	// customLogger *flogging.FabricLogger
-}
-
-func (bc *blockCounter) BCCounter(envs []*pcommon.Envelope) uint64 {
-	data := &pcommon.BlockData{
-		Data: make([][]byte, len(envs)),
-	}
-
-	var err error
-	_ = err
-	for i, env := range envs {
-		data.Data[i], err = proto.Marshal(env)
-		_ = err
-		// if err != nil {
-		// 	bc.customLogger.Panicf("Could not marshal envelope: %s", err)
-		// }
-	}
-
-	return bc.number
-}
-
 type externalVMAdapter struct {
 	detector *externalbuilder.Detector
 }
 
 // Author: Prince
 func CustomChannelCreation(channelID string) {
-	logger.Info("Creating: =========================================", channelID)
+	logger.Info("Creating new channelID:", channelID)
 
 	// Channel tx file generation
 	var profileConfig *genesisconfig.Profile
 	var profile = "TwoOrgsChannel"
-	// var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
 	var configPath = "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/configtx"
 	// var configPath = "/etc/hyperledger/fabric/test-network/configtx" // Workable in state.go file.
-		
-	// logger.Info("---", configPath, "---")
 
 	profileConfig = genesisconfig.Load(profile, configPath)
 
 	var baseProfile *genesisconfig.Profile
-	// var channelID = "princechannel2"
 	// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx" // Workable in state.go file.
 	var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/" + channelID + ".tx"
-	logger.Info("---", outputCreateChannelTx, "---")
 
 	bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
 
@@ -182,176 +153,241 @@ func CustomChannelCreation(channelID string) {
 
 	// Channel join
 	blockPath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/" + channelID + ".block"
-	logger.Info("---", blockPath, "---")
 	channel.Join(cmd, args, nil, blockPath)
+
+	logger.Info("Joining org2 to the channel")
+	joinChannelFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/joinchannel.sh"
+	cmdForJoinChannel, err := exec.Command(joinChannelFilePath, channelID).Output()
+	if err != nil {
+		logger.Info("error %s", err)
+	}
+	output := string(cmdForJoinChannel)
+	logger.Info(output) // Print logs in the terminal
+
+	queryInstalledFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/queryInstalled.sh"
+	cmdForQueryInstalled, err := exec.Command(queryInstalledFilePath, "1", channelID).Output()
+	if err != nil {
+		logger.Info("error %s", err)
+	}
+	output = string(cmdForQueryInstalled)
+	logger.Info(output) // Print logs in the terminal
 }
 
-// var currentChannelID string
-// var currentShard = map[string]int {
-// 	"channel0shard0": 0,
-// 	"channel1shard0": 0,
-// 	"channel2shard0": 0,
-// }
-
 // Author: Prince
-// Tracking the sharding number of the boostrap channels 
-var channel0shard int = 0
-var channel1shard int = 0
-var channel2shard int = 0
-
 // Fixed the limit of the height
-const HEIGHT_LIMIT int = 3
+const HEIGHT_LIMIT int = 7
 
 func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFactory) (err error) {
-	spec, err := getChaincodeSpec(cmd)
-	if err != nil {
-		return err
-	}
-
-	// call with empty txid to ensure production code generates a txid.
-	// otherwise, tests can explicitly set their own txid
-	txID := ""
-
-	proposalResp, err := ChaincodeInvokeOrQuery(
-		spec,
-		channelID,
-		txID,
-		invoke,
-		cf.Signer,
-		cf.Certificate,
-		cf.EndorserClients,
-		cf.DeliverClients,
-		cf.BroadcastClient,
-	)
-	if err != nil {
-		return errors.Errorf("%s - proposal response: %v", err, proposalResp)
-	}
-
+	// Author: Prince
 	if invoke {
-		// Author: Prince
-		if channelID[:8] == "channel0" {
-			logger.Info("Current channelID : ", channelID)
-			logger.Info("Current shard of channel0shard0: ", channel0shard)
+		// ChannelID for invoke
+		invokeChannelID := channelID
 
-			// Block number or height of the ledger on 'channel0shard' related sharding channel
-			height0, err := channel.Getinfo(cmd, nil, channelID)
-			_ = err
-			logger.Info("Height: ", height0, " of the channel: ", channelID)
-
-			if height0 >= uint64(HEIGHT_LIMIT) {
-				// Tracking the current sharding number of related 'channel0shard0' channel
-				channel0shard++
-				logger.Info("Increment of the shard of channel0shard0: ", channel0shard)
-
-				// Setting the next channelID
-				nextChannelID := "channel0shard" + strconv.Itoa(channel0shard)
-				logger.Info("Next channelID : ", nextChannelID)
-
-				// Creatint a new channel and Joining the peers of the organization of that channel
-				CustomChannelCreation(nextChannelID)
+		if channelID == "customchannel" {
+			// Retrieve the current channelID
+			queryCurrentChannelFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/queryCurrentChannel.sh"
+			cmdForQueryCurrentChannel, err := exec.Command(queryCurrentChannelFilePath).Output()
+			if err != nil {
+				logger.Info("error %s", err)
 			}
+			currentChannelID := string(cmdForQueryCurrentChannel) // "channel0shard0", "channel1shard0", "channel2shard0"
+
+			// Retrieve the current shard regarding current channelID
+			queryCCFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/querycc.sh"
+			cmdForQueryCC, err := exec.Command(queryCCFilePath, currentChannelID[:8]).Output()
+			if err != nil {
+				logger.Info("error %s", err)
+			}
+			currentShard := string(cmdForQueryCC)                     // "0\n", "1\n", "2\n", "3\n"....
+			currentShard = strings.Replace(currentShard, "\n", "", 1) // "0", "1", "2", "3" ....
+
+			// Update the channelID for invocation
+			invokeChannelID := currentChannelID[:13] + currentShard
+			logger.Info("Current invocation channelID:", invokeChannelID) // "channel0shard0", "channel0shard1" ....
+
+			// Block number or height of the ledger on 'channel0shard0' or related sharding channel
+			height, err := channel.Getinfo(cmd, nil, invokeChannelID)
+			_ = err
+			logger.Info("Height:", height, "of the current channelID:", invokeChannelID)
+
+			var nextChannelName string
+			if invokeChannelID[:8] == "channel0" {
+				nextChannelName = "channel1shard0"
+			} else if invokeChannelID[:8] == "channel1" {
+				nextChannelName = "channel2shard0"
+			} else if invokeChannelID[:8] == "channel2" {
+				nextChannelName = "channel0shard0"
+			}
+
+			// Update the next invocation channel
+			updateCurrentChannelFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/updateCurrentChannel.sh"
+			cmdForUpdateCurrentChannel, err := exec.Command(updateCurrentChannelFilePath, nextChannelName).Output()
+			if err != nil {
+				logger.Info("error %s", err)
+			}
+			updateChannel := string(cmdForUpdateCurrentChannel)
+			logger.Info("Next invocation channelID:", updateChannel)
+
+			// If height of the ledger will cross the limit (7)
+			if height >= uint64(HEIGHT_LIMIT) {
+				// Convert the current shard number into int from string
+				nextShardCnt, err := strconv.Atoi(currentShard)
+				_ = err
+
+				// Increment the value
+				nextShardCnt++
+
+				// Create new channel for creation and invocation
+				invokeChannelID = currentChannelID[:13] + strconv.Itoa(nextShardCnt)
+
+				// Create a new channel and Joining both peers of the organization of that channel
+				CustomChannelCreation(invokeChannelID)
+
+				// Update the current shard regarding channel
+				invokeCCFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/invokecc.sh"
+				cmdForInvokeCC, err := exec.Command(invokeCCFilePath, currentChannelID[:8]).Output()
+				if err != nil {
+					logger.Info("error %s", err)
+				}
+				output1 := string(cmdForInvokeCC)
+				logger.Info(output1) // Print logs in the terminal
+
+				// Invoke
+				spec, err := getChaincodeSpec(cmd)
+				if err != nil {
+					return err
+				}
+
+				str := ""
+				if string(spec.Input.Args[0][:]) == "InitLedger" {
+					str += ""
+
+				} else {
+					str += "\""
+
+					for i := 1; i < len(spec.Input.Args); i++ {
+						str += string(spec.Input.Args[i][:])
+						if i < len(spec.Input.Args)-1 {
+							str += "\",\""
+						} else {
+							str += "\""
+						}
+					}
+				}
+
+				// Invoke for the first time of new channel
+				invokeForNCFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/invokefornewchannel.sh"
+				cmdForInvokeNCCC, err := exec.Command(invokeForNCFilePath, invokeChannelID, string(spec.Input.Args[0]), str).Output()
+				if err != nil {
+					logger.Info("error %s", err)
+				} else {
+					logger.Infof("Chaincode invoke successful. result: status:200")
+				}
+				output1 = string(cmdForInvokeNCCC)
+				logger.Info(output1) // Print logs in the terminal
+			} else {
+				spec, err := getChaincodeSpec(cmd)
+				if err != nil {
+					return err
+				}
+
+				// call with empty txid to ensure production code generates a txid.
+				// otherwise, tests can explicitly set their own txid
+				txID := ""
+
+				proposalResp, err := ChaincodeInvokeOrQuery(
+					spec,
+					invokeChannelID,
+					txID,
+					invoke,
+					cf.Signer,
+					cf.Certificate,
+					cf.EndorserClients,
+					cf.DeliverClients,
+					cf.BroadcastClient,
+				)
+				if err != nil {
+					return errors.Errorf("%s - proposal response: %v", err, proposalResp)
+				}
+
+				logger.Debugf("ESCC invoke result: %v", proposalResp)
+				pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
+				if err != nil {
+					return errors.WithMessage(err, "error while unmarshalling proposal response payload")
+				}
+				ca, err := protoutil.UnmarshalChaincodeAction(pRespPayload.Extension)
+				if err != nil {
+					return errors.WithMessage(err, "error while unmarshalling chaincode action")
+				}
+				if proposalResp.Endorsement == nil {
+					return errors.Errorf("endorsement failure during invoke. response: %v", proposalResp.Response)
+				}
+				logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
+			}
+		} else {
+			spec, err := getChaincodeSpec(cmd)
+			if err != nil {
+				return err
+			}
+
+			// call with empty txid to ensure production code generates a txid.
+			// otherwise, tests can explicitly set their own txid
+			txID := ""
+
+			proposalResp, err := ChaincodeInvokeOrQuery(
+				spec,
+				invokeChannelID,
+				txID,
+				invoke,
+				cf.Signer,
+				cf.Certificate,
+				cf.EndorserClients,
+				cf.DeliverClients,
+				cf.BroadcastClient,
+			)
+			if err != nil {
+				return errors.Errorf("%s - proposal response: %v", err, proposalResp)
+			}
+
+			logger.Debugf("ESCC invoke result: %v", proposalResp)
+			pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
+			if err != nil {
+				return errors.WithMessage(err, "error while unmarshalling proposal response payload")
+			}
+			ca, err := protoutil.UnmarshalChaincodeAction(pRespPayload.Extension)
+			if err != nil {
+				return errors.WithMessage(err, "error while unmarshalling chaincode action")
+			}
+			if proposalResp.Endorsement == nil {
+				return errors.Errorf("endorsement failure during invoke. response: %v", proposalResp.Response)
+			}
+			logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
 		}
-
-		// if channelID == "channel0shard0" {
-		// 	// Block number or height of the ledger on 'channel0shard0' channel
-		// 	height0, err := channel.Getinfo(cmd, nil, channelID)
-		// 	_ = err
-		// 	logger.Info("Height: ", height0, " of the channel: ", channelID)
-
-		// 	if height0 > 3 {
-		// 		// Increasing the shard number regarding channelID
-		// 		value := currentShard[channelID] + 1
-		// 		currentShard[channelID] = value
-
-		// 		logger.Info("Value: ", value, " & And: ", currentShard[channelID])
-		// 		logger.Info("Current Condition: ", currentShard)
-		// 		logger.Info("Current Shard: ", currentShard[channelID])
-
-		// 		// String conversion of shard number
-		// 		currentShardStr := strconv.Itoa(currentShard[channelID])
-		// 		newChannelID := "channel0shard" + currentShardStr
-		// 		logger.Info("New channelID: ", newChannelID)
-
-		// 		CustomChannelCreation(newChannelID)
-		// 		logger.Info("Modification done for channel: ", newChannelID)
-		// 	}
-		// } else if channelID == "channel1shard0" {
-		// 	// Block number or height of the ledger on 'channel1shard0' channel
-		// 	height1, err := channel.Getinfo(cmd, nil, channelID)
-		// 	_ = err
-		// 	logger.Info("Height: ", height1, " of the channel: ", channelID)
-
-		// 	if height1 > 3 {
-		// 		// Increasing the shard number regarding channelID
-		// 		value := currentShard[channelID] + 1
-		// 		currentShard[channelID] = value
-				
-		// 		logger.Info("Value: ", value, " & And: ", currentShard[channelID])
-		// 		logger.Info("Current Condition: ", currentShard)
-		// 		logger.Info("Current Shard: ", currentShard[channelID])
-
-		// 		// String conversion of shard number
-		// 		currentShardStr := strconv.Itoa(currentShard[channelID])
-		// 		newChannelID := "channel1shard" + currentShardStr
-		// 		logger.Info("New channelID: ", newChannelID)
-
-		// 		CustomChannelCreation(newChannelID)
-		// 		logger.Info("Modification done for channel: ", newChannelID)
-		// 	}
-		// } else if channelID == "channel2shard0" {
-		// 	// Block number or height of the ledger on 'channel2shard0' channel
-		// 	height2, err := channel.Getinfo(cmd, nil, channelID)
-		// 	_ = err
-		// 	logger.Info("Height: ", height2, " of the channel: ", channelID)
-
-		// 	if height2 > 3 {
-		// 		// Increasing the shard number regarding channelID
-		// 		value := currentShard[channelID] + 1
-		// 		currentShard[channelID] = value
-
-		// 		logger.Info("Value: ", value, " & And: ", currentShard[channelID])
-		// 		logger.Info("Current Condition: ", currentShard)
-		// 		logger.Info("Current Shard: ", currentShard[channelID])
-
-		// 		// String conversion of shard number
-		// 		currentShardStr := strconv.Itoa(currentShard[channelID])
-		// 		newChannelID := "channel2shard" + currentShardStr
-		// 		logger.Info("New channelID: ", newChannelID)
-
-		// 		CustomChannelCreation(newChannelID)
-		// 		logger.Info("Modification done for channel: ", newChannelID)
-		// 	}
-		// }
-
-		logger.Debugf("ESCC invoke result: %v", proposalResp)
-		pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
+	} else { // for query
+		spec, err := getChaincodeSpec(cmd)
 		if err != nil {
-			return errors.WithMessage(err, "error while unmarshalling proposal response payload")
+			return err
 		}
-		ca, err := protoutil.UnmarshalChaincodeAction(pRespPayload.Extension)
+
+		// call with empty txid to ensure production code generates a txid.
+		// otherwise, tests can explicitly set their own txid
+		txID := ""
+
+		proposalResp, err := ChaincodeInvokeOrQuery(
+			spec,
+			channelID,
+			txID,
+			invoke,
+			cf.Signer,
+			cf.Certificate,
+			cf.EndorserClients,
+			cf.DeliverClients,
+			cf.BroadcastClient,
+		)
 		if err != nil {
-			return errors.WithMessage(err, "error while unmarshalling chaincode action")
+			return errors.Errorf("%s - proposal response: %v", err, proposalResp)
 		}
-		if proposalResp.Endorsement == nil {
-			return errors.Errorf("endorsement failure during invoke. response: %v", proposalResp.Response)
-		}
-		logger.Infof("Chaincode invoke successful. result: %v", ca.Response)
 
-		// Automate the channel creation part
-		// CustomChannelCreation("shardchannel2")
-		
-		// Block number or height of ledger
-		// height, err := channel.Getinfo(cmd, nil, "shardchannel")
-		// _ = err
-		// logger.Info(">>>>>>>>>>>>>>>>", height, "<<<<<<<<<<<<<<<<<<<<<<")
-		
-		// Sharding
-		// if height > 2 {
-		// 	CustomChannelCreation("shardchannel3")
-		// }
-
-		logger.Info("---ipc-common.go : chaincodeInvokeOrQuery Modification")
-	} else {
 		if proposalResp == nil {
 			return errors.New("error during query: received nil proposal response")
 		}
@@ -805,6 +841,7 @@ func ChaincodeInvokeOrQuery(
 			if proposalResp.Response.Status >= shim.ERRORTHRESHOLD {
 				return proposalResp, nil
 			}
+
 			// assemble a signed transaction (it's an Envelope message)
 			env, err := protoutil.CreateSignedTx(prop, signer, responses...)
 			if err != nil {

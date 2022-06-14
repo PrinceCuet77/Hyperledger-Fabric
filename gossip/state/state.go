@@ -808,43 +808,7 @@ func (s *GossipStateProviderImpl) commitBlock(block *common.Block, pvtData util.
 		s.chainID, block.Header.Number, len(block.Data.Data))
 
 	s.stateMetrics.Height.With("channel", s.chainID).Set(float64(block.Header.Number + 1))
-
-	s.logger.Info("---gs-state.go : commitBlock--- ", block.Header.Number)
 	
-	// Author: Prince
-
-	// // Channel tx file generation
-	// var profileConfig *genesisconfig.Profile
-	// var profile = "TwoOrgsChannel"
-	// // var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
-	// var configPath = "/etc/hyperledger/fabric/test-network/configtx"
-	
-	// s.logger.Info("---", configPath, "---")
-
-	// profileConfig = genesisconfig.Load(profile, configPath)
-
-	// var baseProfile *genesisconfig.Profile
-	// var channelID = "princechannel2"
-	// var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/princechannel2.tx"
-	// s.logger.Info("---", outputCreateChannelTx, "---")
-
-	// bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
-
-	// need in future
-	// putState := &peer.PutState{}
-	// 	namespaceID := txContext.NamespaceID
-	// err = txContext.TXSimulator.SetState(namespaceID, putState.Key, putState.Value)
-	// putState.Key = "blockNumber"
-
-	// // converting uint64 to []bytes
-	// b := make([]byte, 8) 
-	// binary.LittleEndian.PutUint64(b, uint64(block.Header.Number)) 
-
-	// putState.Value = b
-
-	// Try and ERROR
-	
-
 	return nil
 }
 

@@ -112,6 +112,7 @@ func getinfo(cmd *cobra.Command, cf *ChannelCmdFactory) error {
 	return nil
 }
 
+// Author: Prince
 func Getinfo(cmd *cobra.Command, cf *ChannelCmdFactory, channelid string) (uint64, error) {
 	channelID = channelid
 	
@@ -142,7 +143,6 @@ func Getinfo(cmd *cobra.Command, cf *ChannelCmdFactory, channelid string) (uint6
 	}
 
 	fmt.Printf("Blockchain info: %s\n", string(jsonBytes))
-	logger.Info(">>>>>>>>>>>>>>>>", blockChainInfo.Height, "<<<<<<<<<<<<<<<<<<<<<<")
 
 	return blockChainInfo.Height, nil
 }

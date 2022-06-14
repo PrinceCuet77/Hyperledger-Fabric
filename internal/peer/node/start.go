@@ -1269,7 +1269,6 @@ func newOperationsSystem(coreConfig *peer.Config) *operations.System {
 	})
 }
 
-// Author: Prince
 func NewOperationsSystem(coreConfig *peer.Config) *operations.System {
 	return operations.NewSystem(operations.Options{
 		Options: fabhttp.Options{

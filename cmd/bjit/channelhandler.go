@@ -33,7 +33,7 @@ func DoOutputChannelCreateTx(conf, baseProfile *genesisconfig.Profile, channelID
 	logger.Info("Writing new channel tx")
 	err = writeFile(outputChannelCreateTx, protoutil.MarshalOrPanic(configtx), 0o640)
 	if err != nil {
-		return fmt.Errorf("---error writing channel create tx---: %s", err)
+		return fmt.Errorf("error writing channel create tx: %s", err)
 	}
 	return nil
 }

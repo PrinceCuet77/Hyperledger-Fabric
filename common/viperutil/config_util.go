@@ -121,9 +121,6 @@ func (c *ConfigParser) getConfigFile() string {
 // ReadInConfig reads and unmarshals the config file.
 func (c *ConfigParser) ReadInConfig() error {
 	cf := c.getConfigFile()
-	logger.Info("-----File path: ", cf)
-	// cf = "/home/prince-11209/go/src/github.com/hyperledger/fabric/configtx.yaml"
-	// logger.Info("-----File path: ", cf)
 	logger.Debugf("Attempting to open the config file: %s", cf)
 	file, err := os.Open(cf)
 	if err != nil {

@@ -13,7 +13,6 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	cb "github.com/hyperledger/fabric-protos-go/common"
-	"github.com/hyperledger/fabric/cmd/bjit"
 	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/configtxgen/encoder"
@@ -39,46 +38,7 @@ func (e InvalidCreateTx) Error() string {
 	return fmt.Sprintf("Invalid channel create transaction : %s", string(e))
 }
 
-// Author: Prince
-func bootstrapChannels(channelID string) {
-	// Channel tx file generation
-	var profileConfig *genesisconfig.Profile
-	var profile = "TwoOrgsChannel"
-	// var configPath = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/configtx"
-	var configPath = "/etc/hyperledger/fabric/test-network/configtx"
-		
-	// logger.Info("---", configPath, "---")
-
-	profileConfig = genesisconfig.Load(profile, configPath)
-
-	var baseProfile *genesisconfig.Profile
-	// var outputCreateChannelTx = "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".tx"
-	var outputCreateChannelTx = "/etc/hyperledger/fabric/test-network/" + channelID + ".tx" 
-	// logger.Info("---", outputCreateChannelTx, "---")
-
-	bjit.DoOutputChannelCreateTx(profileConfig, baseProfile, channelID, outputCreateChannelTx)
-
-	// Channel creation
-	var cmd *cobra.Command
-	var args []string
-	Create(cmd, args, nil, channelID, outputCreateChannelTx)
-
-	// Channel join
-	// blockPath := "/home/prince-11209/Desktop/Fabric/fabric-samples/test-network/" + channelID + ".block"
-	blockPath := "/etc/hyperledger/fabric/test-network/" + channelID + ".block"
-	Join(cmd, args, nil, blockPath)
-}
-
 func createCmd(cf *ChannelCmdFactory) *cobra.Command {
-	// Author: Prince
-	// for i := 1; i <= 3; i++ {
-	// 	channelID = "shardchannel"
-	// 	n := strconv.Itoa(i)
-	// 	channelID = channelID + n
-	// 	logger.Info("Current Channel Name: ", channelID)
-	// 	bootstrapChannels(channelID)
-	// }
-
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a channel",
@@ -284,8 +244,8 @@ func create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory) error {
 	return executeCreate(cf)
 }
 
+// Author: Prince
 func Create(cmd *cobra.Command, args []string, cf *ChannelCmdFactory, channelid string, txFile string) error {
-	// Author: Prince
 	channelID = channelid
 	channelTxFile = txFile
 

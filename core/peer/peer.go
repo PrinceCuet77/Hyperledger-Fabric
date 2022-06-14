@@ -173,9 +173,6 @@ func (p *Peer) AddConfigCallbacks(callbacks ...channelconfig.BundleActor) {
 }
 
 func (p *Peer) openStore(cid string) (*transientstore.Store, error) {
-	logger.Info("---", cid, "---")
-	logger.Info("---", cid, "---After")
-
 	store, err := p.StoreProvider.OpenStore(cid)
 	if err != nil {
 		return nil, err
@@ -191,9 +188,6 @@ func (p *Peer) CreateChannel(
 	legacyLifecycleValidation plugindispatcher.LifecycleResources,
 	newLifecycleValidation plugindispatcher.CollectionAndLifecycleResources,
 ) error {
-	logger.Info("---", cid, "---")
-	logger.Info("---", cid, "---After")
-
 	l, err := p.LedgerMgr.CreateLedger(cid, cb)
 	if err != nil {
 		return errors.WithMessage(err, "cannot create ledger from genesis block")
@@ -248,9 +242,6 @@ func (p *Peer) createChannel(
 	legacyLifecycleValidation plugindispatcher.LifecycleResources,
 	newLifecycleValidation plugindispatcher.CollectionAndLifecycleResources,
 ) error {
-	logger.Info("---", cid, "---")
-	logger.Info("---", cid, "---After")
-
 	chanConf, err := RetrievePersistedChannelConfig(l)
 	if err != nil {
 		return err
@@ -397,9 +388,6 @@ func (p *Peer) createChannel(
 }
 
 func (p *Peer) Channel(cid string) *Channel {
-	logger.Info("---", cid, "---")
-	logger.Info("---", cid, "---After")
-
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 	if c, ok := p.channels[cid]; ok {
@@ -450,9 +438,6 @@ func (p *Peer) GetStableChannelConfig(cid string) channelconfig.Resources {
 // GetLedger returns the ledger of the channel with channel ID. Note that this
 // call returns nil if channel cid has not been created.
 func (p *Peer) GetLedger(cid string) ledger.PeerLedger {
-	logger.Info("---", cid, "---")
-	logger.Info("---", cid, "---After")
-
 	if c := p.Channel(cid); c != nil {
 		return c.Ledger()
 	}
@@ -483,9 +468,6 @@ func (p *Peer) JoinBySnaphotStatus() *pb.JoinBySnapshotStatus {
 
 // initChannel takes care to initialize channel after peer joined, for example deploys system CCs
 func (p *Peer) initChannel(cid string) {
-	logger.Info("---", cid, "---")
-	logger.Info("---", cid, "---After")
-
 	if p.channelInitializer != nil {
 		// Initialize chaincode, namely deploy system CC
 		peerLogger.Debugf("Initializing channel %s", cid)
