@@ -184,6 +184,8 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		invokeChannelID := channelID
 
 		if channelID == "customchannel" {
+			// logger.Info("All Environment variable prev: -------------------------", os.Environ())
+
 			// Retrieve the current channelID
 			queryCurrentChannelFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/queryCurrentChannel.sh"
 			cmdForQueryCurrentChannel, err := exec.Command(queryCurrentChannelFilePath).Output()

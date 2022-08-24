@@ -9,6 +9,12 @@ package kvledger
 import (
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -687,7 +693,327 @@ func (l *kvLedger) commit(pvtdataAndBlock *ledger.BlockAndPvtData, commitOpts *l
 		txstatsInfo,
 	)
 
+	// Author: Prince
+	logger.Info("Block Number:", block.Header.Number)
+
+	logger.Info(l.ledgerID)
+	if l.ledgerID == "customchannel" && block.Header.Number > 5 {
+
+		// Retrieve the current channelID
+		logger.Info("-------------------------------RETRIEVE THE CURRENT CHANNEL-ID----------------------------")
+		queryCurrentChannelFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=queryCurrentChannelForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=")
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		queryCurrentChannelFile, err := ioutil.ReadAll(queryCurrentChannelFilePath.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------RETRIEVE THE CURRENT CHANNEL-ID----------------------------")
+		logger.Info(string(queryCurrentChannelFile)) // "channel0shard0", "channel1shard0", "channel2shard0"
+
+		// dat, err := os.ReadFile("/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/querycurrentchannelForSDKlog.txt")
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// currentChannelID := string(dat)
+		// logger.Info("Current ChannelID:", currentChannelID)
+
+		logger.Info("-------------------------------RETRIEVE THE CURRENT CHANNEL-ID FROM TXT----------------------------")
+		datt, err := http.Get("http://host.docker.internal:8088/readFile?filePath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/querycurrentchannelForSDKlog.txt")
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		dat, err := ioutil.ReadAll(datt.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------RETRIEVE THE CURRENT CHANNEL-ID FROM TXT----------------------------")
+		currentChannelID := string(dat)
+		logger.Info("currentChannelID: ", currentChannelID)
+		logger.Info("Current ChannelID:", currentChannelID)
+
+		// Retrieve the current shard regarding current channelID
+		logger.Info("-------------------------------RETRIEVE THE CURRENT SHARDING CHANNEL-ID----------------------------")
+		queryCCFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=queryccForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + currentChannelID[:8])
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		queryCCFile, err := ioutil.ReadAll(queryCCFilePath.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------RETRIEVE THE CURRENT SHARDING CHANNEL-ID----------------------------")
+		logger.Info(string(queryCCFile))
+
+		// dat1, err := os.ReadFile("/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/queryccForSDKlog.txt")
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// currentShard := string(dat1)
+
+		logger.Info("-------------------------------RETRIEVE THE CURRENT SHARDING CHANNEL-ID FROM TXT----------------------------")
+		datt1, err := http.Get("http://host.docker.internal:8088/readFile?filePath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/queryccForSDKlog.txt")
+
+		// http://localhost:8088/readFile?filePath=scriptFileName=queryccForSDKlog.txt&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network
+
+		// sudo chmod -R a+wrx data.txt
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		dat1, err := ioutil.ReadAll(datt1.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------RETRIEVE THE CURRENT SHARDING CHANNEL-ID FROM TXT----------------------------")
+		currentShard := string(dat1)
+		logger.Info("currentShard: ", currentShard)
+		logger.Info("currentChannelID: ", currentChannelID)
+
+		currentShard = strings.Replace(currentShard, "\n", "", 1) // "1"
+		logger.Info("Current Sharding Channel:", currentShard)
+
+		// Update the channelID for invocation
+		invokeChannelID := currentChannelID[:13] + currentShard // channel0shard + 0,1,2,..... = 
+		logger.Info("Current invocation channelID:", invokeChannelID)
+
+		// Block number or height of the ledger on 'channel0shard0' or related sharding channel
+		logger.Info("-------------------------------CHANNEL-ID HEIGHT----------------------------")
+		getHeightFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=getHeightForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + invokeChannelID)
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		getHeightFile, err := ioutil.ReadAll(getHeightFilePath.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------CHANNEL-ID HEIGHT----------------------------")
+		logger.Info(string(getHeightFile)) // info
+
+		// dat4, err := os.ReadFile("/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/data.txt")
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// heightStr := string(dat4)
+
+		logger.Info("-------------------------------CHANNEL-ID HEIGHT FROM TXT----------------------------")
+		datt4, err := http.Get("http://host.docker.internal:8088/readFile?filePath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/data.txt") // 6,7
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		dat4, err := ioutil.ReadAll(datt4.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------CHANNEL-ID HEIGHT FROM TXT----------------------------")
+		heightStr := string(dat4)
+		logger.Info("heightStr: ", heightStr)
+
+		logger.Info("Current ChannelID:", currentChannelID)
+
+		logger.Info("Height:", heightStr, "of the current channelID:", invokeChannelID)
+
+		var nextChannelName string
+		if invokeChannelID[:8] == "channel0" {
+			nextChannelName = "channel1shard0"
+		} else if invokeChannelID[:8] == "channel1" {
+			nextChannelName = "channel2shard0"
+		} else if invokeChannelID[:8] == "channel2" {
+			nextChannelName = "channel0shard0"
+		}
+
+		// Update the next invocation channel
+		logger.Info("------------------------------UPDATE THE NEXT INVOCATION CHANNEL-ID----------------------------")
+		updateCurrentChannelFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=updateCurrentChannelForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + nextChannelName)
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		updateCurrentChannelFile, err := ioutil.ReadAll(updateCurrentChannelFilePath.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------UPDATE THE NEXT INVOCATION CHANNEL-ID----------------------------")
+		logger.Info(string(updateCurrentChannelFile))
+
+		// dat2, err := os.ReadFile("/home/prince-11209/Desktop/Fabric/RnD-3Task/fabric-samples/test-network/updateCurrentChannelForSDKlog.txt")
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// updateChannel := string(dat2)
+
+		logger.Info("-------------------------------UPDATE THE NEXT INVOCATION CHANNEL-ID FROM TXT----------------------------")
+		datt2, err := http.Get("http://host.docker.internal:8088/readFile?filePath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/updateCurrentChannelForSDKlog.txt")
+
+		if err != nil {
+			fmt.Print(err.Error())
+			os.Exit(1)
+		}
+
+		dat2, err := ioutil.ReadAll(datt2.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		logger.Info("-------------------------------UPDATE THE NEXT INVOCATION CHANNEL-ID FROM TXT----------------------------")
+		updateChannel := string(dat2)
+		logger.Info("updateChannel: ", updateChannel)
+
+		logger.Info("Next invocation channelID:", updateChannel)
+
+		height, err := strconv.Atoi(heightStr)
+		_ = err
+		logger.Info("Height: ", height)
+		if height >= 7 {
+			logger.Info("----------------- INTER INTO --------------------")
+			// Convert the current shard number into int from string
+			nextShardCnt, err := strconv.Atoi(currentShard)
+			logger.Info("nextShardCnt: ", nextShardCnt)
+			_ = err
+
+			// Increment the value
+			nextShardCnt++
+			logger.Info("nextShardCnt++: ", nextShardCnt)
+
+			// Create new channel for creation and invocation
+			invokeChannelID = currentChannelID[:13] + strconv.Itoa(nextShardCnt) // channel0shard6
+			logger.Info("invokeChannelID: ", invokeChannelID)
+
+			// Create a new channel and Joining both peers of the organization of that channel
+			// CustomChannelCreation(invokeChannelID)
+			logger.Info("-------------------------------CHANNEL CREATION PART----------------------------")
+			response1, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=createChannelForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + invokeChannelID)
+
+			if err != nil {
+				fmt.Print(err.Error())
+				os.Exit(1)
+			}
+
+			responseData1, err := ioutil.ReadAll(response1.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+			// fmt.Println(string(responseData1))
+			// logger.Info("---------->>>>>>>>>>> Start a new thing <<<<<<<<<<<<<<<---------------")
+			logger.Info("-------------------------------CHANNEL CREATION PART----------------------------")
+			logger.Info(string(responseData1))
+
+			logger.Info("-------------------------------CC INSTALLED PART----------------------------")
+			response2, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=queryInstalledForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + "1," + invokeChannelID)
+
+			if err != nil {
+				fmt.Print(err.Error())
+				os.Exit(1)
+			}
+
+			responseData2, err := ioutil.ReadAll(response2.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+			// fmt.Println(string(responseData1))
+			// logger.Info("---------->>>>>>>>>>> Start a new thing <<<<<<<<<<<<<<<---------------")
+			logger.Info("-------------------------------CC INSTALLED PART----------------------------")
+			logger.Info(string(responseData2))
+
+			// Update the current shard regarding channel
+			logger.Info("------------------------------UDPATE THE CURRENT SHARD REGARDING CHANNEL-ID---------------------------")
+			logger.Info(invokeChannelID)
+			logger.Info(currentChannelID)
+			invokeCCFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=invokeccForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + invokeChannelID[:8])
+
+			if err != nil {
+				fmt.Print(err.Error())
+				os.Exit(1)
+			}
+
+			invokeCCFile, err := ioutil.ReadAll(invokeCCFilePath.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			logger.Info("---------------------UDPATE THE CURRENT SHARD REGARDING CHANNEL-ID--------------------")
+			logger.Info(string(invokeCCFile))
+
+			// Invoke for the first time of new channel
+			logger.Info("-------------------------------INVOKE TO THE NEW CHANNEL-ID----------------------------")
+			funcName := "CreateAsset"
+			ID := "asset1"
+			Color := "blue"
+			Size := "5"
+			Owner := "Tomoko"
+			AppraisedValue := "300"
+
+			arguments := "\"" + ID + "\", \"" + Color + "\", \"" + Size + "\", \"" + Owner + "\", \"" + AppraisedValue + "\""
+			logger.Info(arguments)
+			invokeForNCFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=invokefornewchannelForSDK.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + invokeChannelID + "," + funcName + "," + ID + "," + Color + "," + Size + "," + Owner + "," + AppraisedValue)
+
+			if err != nil {
+				fmt.Print(err.Error())
+				os.Exit(1)
+			}
+
+			invokeForNCFile, err := ioutil.ReadAll(invokeForNCFilePath.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			logger.Info("-------------------------------INVOKE TO THE NEW CHANNEL-ID----------------------------")
+			logger.Info(string(invokeForNCFile))
+		} else {
+			// Invoke for the first time of new channel
+			logger.Info("-------------------------------INVOKE TO THE NEW CHANNEL-ID----------------------------")
+			funcName := "TransferAsset"
+			ID := "asset1"
+			Owner := "Prince"
+
+			arguments := "\"" + ID + "\", \"" + Owner + "\""
+			logger.Info(arguments)
+			invokeForNCFilePath, err := http.Get("http://host.docker.internal:8088/callScript?scriptFileName=invokefornewchannelForSDK2.sh&baseFolderPath=/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network&arguments=" + invokeChannelID + "," + funcName + "," + ID + "," + Owner)
+
+			if err != nil {
+				fmt.Print(err.Error())
+				os.Exit(1)
+			}
+
+			invokeForNCFile, err := ioutil.ReadAll(invokeForNCFilePath.Body)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			logger.Info("-------------------------------INVOKE TO THE NEW CHANNEL-ID----------------------------")
+			logger.Info(string(invokeForNCFile))
+		}
+	}
+
 	l.sendCommitNotification(blockNo, txstatsInfo)
+
 	return nil
 }
 
@@ -1114,6 +1440,7 @@ func constructPvtdataMap(pvtdata []*ledger.TxPvtData) ledger.TxPvtDataMap {
 
 func constructPvtDataAndMissingData(blockAndPvtData *ledger.BlockAndPvtData) ([]*ledger.TxPvtData,
 	ledger.TxMissingPvtData) {
+
 	var pvtData []*ledger.TxPvtData
 	missingPvtData := make(ledger.TxMissingPvtData)
 
