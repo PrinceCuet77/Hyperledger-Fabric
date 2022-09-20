@@ -11,31 +11,43 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-chaincode-go/shim"
+
+	// pcommon "github.com/hyperledger/fabric-protos-go/common"
 	pcommon "github.com/hyperledger/fabric-protos-go/common"
 	ab "github.com/hyperledger/fabric-protos-go/orderer"
 	pb "github.com/hyperledger/fabric-protos-go/peer"
+	lb "github.com/hyperledger/fabric-protos-go/peer/lifecycle"
 	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/bccsp/factory"
 	"github.com/hyperledger/fabric/cmd/bjit"
 	"github.com/hyperledger/fabric/common/policydsl"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/core/chaincode/persistence"
 	"github.com/hyperledger/fabric/core/container/externalbuilder"
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/internal/peer/channel"
 	"github.com/hyperledger/fabric/internal/peer/common"
+
+	// "github.com/hyperledger/fabric/internal/peer/lifecycle/chaincode"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"google.golang.org/grpc"
+	// "github.com/hyperledger/fabric/internal/peer/lifecycle/chaincode"
 )
 
 // checkSpec to see if chaincode resides within current package capture for language.
@@ -129,6 +141,649 @@ type externalVMAdapter struct {
 }
 
 // Author: Prince
+// ------------------------ Start for Query Installed ---------------------------
+type ClientConnectionsInput struct {
+	CommandName           string
+	EndorserRequired      bool
+	OrdererRequired       bool
+	OrderingEndpoint      string
+	ChannelID             string
+	PeerAddresses         []string
+	TLSRootCertFiles      []string
+	ConnectionProfilePath string
+	TargetPeer            string
+	TLSEnabled            bool
+}
+
+// Chaincode-related variables.
+var (
+	connectionProfilePath string
+	targetPeer            string
+	output                string
+)
+
+type InstalledQueryInput struct {
+	OutputFormat string
+}
+
+type EndorserClient interface {
+	ProcessProposal(ctx context.Context, in *pb.SignedProposal, opts ...grpc.CallOption) (*pb.ProposalResponse, error)
+}
+
+type Signer interface {
+	Sign(msg []byte) ([]byte, error)
+	Serialize() ([]byte, error)
+}
+
+type InstalledQuerier struct {
+	Command        *cobra.Command
+	Input          *InstalledQueryInput
+	EndorserClient EndorserClient
+	Signer         Signer
+	Writer         io.Writer
+}
+
+var cryptoProvider = factory.GetDefault()
+
+func QueryInstalled() error {
+	var cmd *cobra.Command
+
+	logger.Info("-------------------------------- Common File --------------------------")
+	logger.Info("Peer Address: ", peerAddresses)
+	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+	logger.Info("Connection Profile Path: ", connectionProfilePath)
+	logger.Info("Target Peer: ", targetPeer)
+	logger.Info("-------------------------------- end of Common File --------------------------")
+
+	// for i := 0; i < 2; i++ {
+	// 	peerAddresses[i] = ""
+	// 	tlsRootCertFiles[i] = ""
+	// }
+
+	logger.Info("Before:")
+	logger.Info("Peer Address: ", peerAddresses)
+	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+
+	// peerAddresses = []string{}
+	// tlsRootCertFiles = []string{}
+
+	logger.Info("After:")
+	logger.Info("Peer Address: ", peerAddresses)
+	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+
+	ccInput := &ClientConnectionsInput{
+		CommandName:           "queryinstalled",
+		EndorserRequired:      true,
+		PeerAddresses:         peerAddresses,
+		TLSRootCertFiles:      tlsRootCertFiles,
+		ConnectionProfilePath: connectionProfilePath,
+		TargetPeer:            targetPeer,
+		TLSEnabled:            viper.GetBool("peer.tls.enabled"),
+	}
+	logger.Info("CommandName: ", ccInput.CommandName)
+	logger.Info("Endorse Required: ", ccInput.EndorserRequired)
+	logger.Info("Peer Addresses: ", ccInput.PeerAddresses)
+	logger.Info("TLS Root Cert Files: ", ccInput.TLSRootCertFiles)
+	logger.Info("Connection Profile Path: ", ccInput.ConnectionProfilePath)
+	logger.Info("Target Peer: ", ccInput.TargetPeer)
+	logger.Info("TLS Enabled: ", ccInput.TLSEnabled)
+
+	// ccInput:  &{queryinstalled true false   [] []   true}
+	logger.Info("ccInput: ", ccInput)
+
+	// cryptoProvider := factory.GetDefault()
+	logger.Info("cryptoProvider: ", cryptoProvider)
+
+	cc, err := NewClientConnections(ccInput, cryptoProvider)
+	if err != nil {
+		return err
+	}
+	logger.Info("cc: ", cc)
+
+	iqInput := &InstalledQueryInput{
+		OutputFormat: output,
+	}
+	logger.Info("iqInput: ", iqInput)
+
+	// queryinstalled only supports one peer connection,
+	// which is why we only wire in the first endorser
+	// client
+	i := &InstalledQuerier{
+		Command:        cmd,
+		EndorserClient: cc.EndorserClients[0],
+		Input:          iqInput,
+		Signer:         cc.Signer,
+		Writer:         os.Stdout,
+	}
+	logger.Info("i: ", i)
+
+	return i.Query()
+}
+
+type ClientConnections struct {
+	BroadcastClient common.BroadcastClient
+	DeliverClients  []pb.DeliverClient
+	EndorserClients []pb.EndorserClient
+	Certificate     tls.Certificate
+	Signer          identity.SignerSerializer
+	CryptoProvider  bccsp.BCCSP
+}
+
+// NewClientConnections creates a new set of client connections based on the
+// input parameters.
+func NewClientConnections(input *ClientConnectionsInput, cryptoProvider bccsp.BCCSP) (*ClientConnections, error) {
+	signer, err := common.GetDefaultSigner()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to retrieve default signer")
+	}
+
+	c := &ClientConnections{
+		Signer:         signer,
+		CryptoProvider: cryptoProvider,
+	}
+
+	if input.EndorserRequired {
+		err := c.setPeerClients(input)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if input.OrdererRequired {
+		err := c.setOrdererClient()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return c, nil
+}
+
+func (c *ClientConnections) setPeerClients(input *ClientConnectionsInput) error {
+	var endorserClients []pb.EndorserClient
+	var deliverClients []pb.DeliverClient
+
+	if err := c.validatePeerConnectionParameters(input); err != nil {
+		return errors.WithMessage(err, "failed to validate peer connection parameters")
+	}
+
+	for i, address := range input.PeerAddresses {
+		var tlsRootCertFile string
+		if input.TLSRootCertFiles != nil {
+			tlsRootCertFile = input.TLSRootCertFiles[i]
+		}
+		endorserClient, err := common.GetEndorserClient(address, tlsRootCertFile)
+		if err != nil {
+			return errors.WithMessagef(err, "failed to retrieve endorser client for %s", input.CommandName)
+		}
+		endorserClients = append(endorserClients, endorserClient)
+		deliverClient, err := common.GetPeerDeliverClient(address, tlsRootCertFile)
+		if err != nil {
+			return errors.WithMessagef(err, "failed to retrieve deliver client for %s", input.CommandName)
+		}
+		deliverClients = append(deliverClients, deliverClient)
+	}
+	if len(endorserClients) == 0 {
+		// this should only be empty due to a programming bug
+		return errors.New("no endorser clients retrieved")
+	}
+
+	err := c.setCertificate()
+	if err != nil {
+		return err
+	}
+
+	c.EndorserClients = endorserClients
+	c.DeliverClients = deliverClients
+
+	return nil
+}
+
+func (c *ClientConnections) validatePeerConnectionParameters(input *ClientConnectionsInput) error {
+	if input.ConnectionProfilePath != "" {
+		err := input.parseConnectionProfile()
+		if err != nil {
+			return err
+		}
+	}
+
+	// currently only support multiple peer addresses for _lifecycle
+	// for approveformyorg and commit
+	multiplePeersAllowed := map[string]bool{
+		"approveformyorg": true,
+		"commit":          true,
+	}
+	if !multiplePeersAllowed[input.CommandName] && len(input.PeerAddresses) > 1 {
+		return errors.Errorf("'%s' command supports one peer. %d peers provided", input.CommandName, len(input.PeerAddresses))
+	}
+
+	if !input.TLSEnabled {
+		input.TLSRootCertFiles = nil
+		return nil
+	}
+	if len(input.TLSRootCertFiles) != len(input.PeerAddresses) {
+		return errors.Errorf("number of peer addresses (%d) does not match the number of TLS root cert files (%d)", len(input.PeerAddresses), len(input.TLSRootCertFiles))
+	}
+
+	return nil
+}
+
+func (c *ClientConnectionsInput) parseConnectionProfile() error {
+	networkConfig, err := common.GetConfig(c.ConnectionProfilePath)
+	if err != nil {
+		return err
+	}
+
+	c.PeerAddresses = []string{}
+	c.TLSRootCertFiles = []string{}
+
+	if c.ChannelID == "" {
+		if c.TargetPeer == "" {
+			return errors.New("--targetPeer must be specified for channel-less operation using connection profile")
+		}
+		return c.appendPeerConfig(networkConfig, c.TargetPeer)
+	}
+
+	if len(networkConfig.Channels[c.ChannelID].Peers) == 0 {
+		return nil
+	}
+
+	for peer, peerChannelConfig := range networkConfig.Channels[c.ChannelID].Peers {
+		if peerChannelConfig.EndorsingPeer {
+			err := c.appendPeerConfig(networkConfig, peer)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *ClientConnectionsInput) appendPeerConfig(n *common.NetworkConfig, peer string) error {
+	peerConfig, ok := n.Peers[peer]
+	if !ok {
+		return errors.Errorf("peer '%s' doesn't have associated peer config", peer)
+	}
+	c.PeerAddresses = append(c.PeerAddresses, peerConfig.URL)
+	c.TLSRootCertFiles = append(c.TLSRootCertFiles, peerConfig.TLSCACerts.Path)
+
+	return nil
+}
+
+func (c *ClientConnections) setCertificate() error {
+	certificate, err := common.GetClientCertificate()
+	if err != nil {
+		return errors.WithMessage(err, "failed to retrieve client cerificate")
+	}
+
+	c.Certificate = certificate
+
+	return nil
+}
+
+func (c *ClientConnections) setOrdererClient() error {
+	oe := viper.GetString("orderer.address")
+	if oe == "" {
+		// if we're here we didn't get an orderer endpoint from the command line
+		// so we'll attempt to get one from cscc - bless it
+		if c.Signer == nil {
+			return errors.New("cannot obtain orderer endpoint, no signer was configured")
+		}
+
+		if len(c.EndorserClients) == 0 {
+			return errors.New("cannot obtain orderer endpoint, empty endorser list")
+		}
+
+		orderingEndpoints, err := common.GetOrdererEndpointOfChainFnc(channelID, c.Signer, c.EndorserClients[0], c.CryptoProvider)
+		if err != nil {
+			return errors.WithMessagef(err, "error getting channel (%s) orderer endpoint", channelID)
+		}
+		if len(orderingEndpoints) == 0 {
+			return errors.Errorf("no orderer endpoints retrieved for channel %s, pass orderer endpoint with -o flag instead", channelID)
+		}
+
+		logger.Infof("Retrieved channel (%s) orderer endpoint: %s", channelID, orderingEndpoints[0])
+		// override viper env
+		viper.Set("orderer.address", orderingEndpoints[0])
+	}
+
+	broadcastClient, err := common.GetBroadcastClient()
+	if err != nil {
+		return errors.WithMessage(err, "failed to retrieve broadcast client")
+	}
+
+	c.BroadcastClient = broadcastClient
+
+	return nil
+}
+
+// Query returns the chaincodes installed on a peer
+func (i *InstalledQuerier) Query() error {
+	if i.Command != nil {
+		// Parsing of the command line is done so silence cmd usage
+		i.Command.SilenceUsage = true
+	}
+
+	proposal, err := i.createProposal()
+	if err != nil {
+		return errors.WithMessage(err, "failed to create proposal")
+	}
+
+	signedProposal, err := signProposal(proposal, i.Signer)
+	if err != nil {
+		return errors.WithMessage(err, "failed to create signed proposal")
+	}
+
+	proposalResponse, err := i.EndorserClient.ProcessProposal(context.Background(), signedProposal)
+	if err != nil {
+		return errors.WithMessage(err, "failed to endorse proposal")
+	}
+
+	if proposalResponse == nil {
+		return errors.New("received nil proposal response")
+	}
+
+	if proposalResponse.Response == nil {
+		return errors.New("received proposal response with nil response")
+	}
+
+	if proposalResponse.Response.Status != int32(pcommon.Status_SUCCESS) {
+		return errors.Errorf("query failed with status: %d - %s", proposalResponse.Response.Status, proposalResponse.Response.Message)
+	}
+
+	if strings.ToLower(i.Input.OutputFormat) == "json" {
+		return printResponseAsJSON(proposalResponse, &lb.QueryInstalledChaincodesResult{}, i.Writer)
+	}
+	return i.printResponse(proposalResponse)
+}
+
+// printResponse prints the information included in the response
+// from the server.
+func (i *InstalledQuerier) printResponse(proposalResponse *pb.ProposalResponse) error {
+	qicr := &lb.QueryInstalledChaincodesResult{}
+	err := proto.Unmarshal(proposalResponse.Response.Payload, qicr)
+	if err != nil {
+		return errors.Wrap(err, "failed to unmarshal proposal response's response payload")
+	}
+	fmt.Fprintln(i.Writer, "Installed chaincodes on peer:")
+	for _, chaincode := range qicr.InstalledChaincodes {
+		// logger.Info("-------chaincode.PackageId:", chaincode.PackageId)
+		if chaincode.Label == "basic_1" {
+			packageID = chaincode.PackageId
+			// logger.Info("-------chaincode.PackageId2:", chaincode.PackageId)
+			// logger.Info("-------packageID3:", packageID)
+		}
+		// logger.Info("-------chaincode.PackageId3:", chaincode.PackageId)
+		// logger.Info("-------packageID4:", packageID)
+		fmt.Fprintf(i.Writer, "Package ID: %s, Label: %s\n", chaincode.PackageId, chaincode.Label)
+	}
+	// logger.Info("-------packageID5:", packageID)
+	return nil
+}
+
+func printResponseAsJSON(proposalResponse *pb.ProposalResponse, msg proto.Message, out io.Writer) error {
+	err := proto.Unmarshal(proposalResponse.Response.Payload, msg)
+	if err != nil {
+		return errors.Wrapf(err, "failed to unmarshal proposal response's response payload as type %T", msg)
+	}
+
+	bytes, err := json.MarshalIndent(msg, "", "\t")
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal output")
+	}
+
+	fmt.Fprintf(out, "%s\n", string(bytes))
+
+	return nil
+}
+
+func signProposal(proposal *pb.Proposal, signer Signer) (*pb.SignedProposal, error) {
+	// check for nil argument
+	if proposal == nil {
+		return nil, errors.New("proposal cannot be nil")
+	}
+
+	if signer == nil {
+		return nil, errors.New("signer cannot be nil")
+	}
+
+	proposalBytes, err := proto.Marshal(proposal)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshaling proposal")
+	}
+
+	signature, err := signer.Sign(proposalBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.SignedProposal{
+		ProposalBytes: proposalBytes,
+		Signature:     signature,
+	}, nil
+}
+
+const (
+	lifecycleName = "_lifecycle"
+)
+
+func (i *InstalledQuerier) createProposal() (*pb.Proposal, error) {
+	args := &lb.QueryInstalledChaincodesArgs{}
+
+	argsBytes, err := proto.Marshal(args)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal args")
+	}
+
+	ccInput := &pb.ChaincodeInput{
+		Args: [][]byte{[]byte("QueryInstalledChaincodes"), argsBytes},
+	}
+
+	cis := &pb.ChaincodeInvocationSpec{
+		ChaincodeSpec: &pb.ChaincodeSpec{
+			ChaincodeId: &pb.ChaincodeID{Name: lifecycleName},
+			Input:       ccInput,
+		},
+	}
+
+	signerSerialized, err := i.Signer.Serialize()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to serialize identity")
+	}
+
+	proposal, _, err := protoutil.CreateProposalFromCIS(pcommon.HeaderType_ENDORSER_TRANSACTION, "", cis, signerSerialized)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to create ChaincodeInvocationSpec proposal")
+	}
+
+	return proposal, nil
+}
+
+// ------------------------ End for Query Installed ---------------------------
+// ------------------------ Start for Get Query Installed Package ---------------------------
+type GetInstalledPackageInput struct {
+	PackageID       string
+	OutputDirectory string
+}
+
+var (
+	packageID       string
+	outputDirectory string
+)
+
+type InstalledPackageGetter struct {
+	Command        *cobra.Command
+	Input          *GetInstalledPackageInput
+	EndorserClient EndorserClient
+	Signer         Signer
+	Writer         Writer
+}
+
+type Writer interface {
+	WriteFile(string, string, []byte) error
+}
+
+func GetInstalledPackage() error {
+	logger.Info("---------------------------- Common file --------------------------------- ")
+	// logger.Info("CommandName:", cmd.Name())
+	// logger.Info("PeerAddresses:", peerAddresses)
+	// logger.Info("TLSRootCertFiles:", tlsRootCertFiles)
+	// logger.Info("ConnectionProfilePath:", connectionProfilePath)
+	// logger.Info("TargetPeer:", targetPeer)
+	// logger.Info("TLSEnabled:", viper.GetBool("peer.tls.enabled"))
+
+	ccInput := &ClientConnectionsInput{
+		CommandName:           "getqueryinstalledpkg",
+		EndorserRequired:      true,
+		PeerAddresses:         peerAddresses,
+		TLSRootCertFiles:      tlsRootCertFiles,
+		ConnectionProfilePath: connectionProfilePath,
+		TargetPeer:            targetPeer,
+		TLSEnabled:            viper.GetBool("peer.tls.enabled"),
+	}
+	// logger.Info("ccInput:", ccInput)
+
+	cc, err := NewClientConnections(ccInput, cryptoProvider)
+	if err != nil {
+		return err
+	}
+	// logger.Info("cc:", cc)
+
+	// logger.Info("-----------Package ID: ", packageID)
+	gipInput := &GetInstalledPackageInput{
+		PackageID:       packageID,
+		OutputDirectory: outputDirectory,
+	}
+	// logger.Info("gipInput:", gipInput)
+	// logger.Info("gipInput.PackageID:", gipInput.PackageID)
+
+	var cmd *cobra.Command
+
+	// getinstalledpackage only supports one peer connection,
+	// which is why we only wire in the first endorser
+	// client
+	i := &InstalledPackageGetter{
+		Command:        cmd,
+		EndorserClient: cc.EndorserClients[0],
+		Input:          gipInput,
+		Signer:         cc.Signer,
+		Writer:         &persistence.FilesystemIO{},
+	}
+	// logger.Info("i:", i)
+
+	return i.Get()
+}
+
+// Validate checks that the required parameters are provided.
+func (i *GetInstalledPackageInput) Validate() error {
+	if i.PackageID == "" {
+		return errors.New("The required parameter 'package-id' is empty. Rerun the command with --package-id flag")
+	}
+
+	return nil
+}
+
+// Get retrieves the installed chaincode package from a peer.
+func (i *InstalledPackageGetter) Get() error {
+	if i.Command != nil {
+		// Parsing of the command line is done so silence cmd usage
+		i.Command.SilenceUsage = true
+	}
+
+	if err := i.Input.Validate(); err != nil {
+		return err
+	}
+
+	proposal, err := i.createProposal()
+	if err != nil {
+		return errors.WithMessage(err, "failed to create proposal")
+	}
+
+	signedProposal, err := signProposal(proposal, i.Signer)
+	if err != nil {
+		return errors.WithMessage(err, "failed to create signed proposal")
+	}
+
+	proposalResponse, err := i.EndorserClient.ProcessProposal(context.Background(), signedProposal)
+	if err != nil {
+		return errors.WithMessage(err, "failed to endorse proposal")
+	}
+
+	if proposalResponse == nil {
+		return errors.New("received nil proposal response")
+	}
+
+	if proposalResponse.Response == nil {
+		return errors.New("received proposal response with nil response")
+	}
+
+	if proposalResponse.Response.Status != int32(pcommon.Status_SUCCESS) {
+		return errors.Errorf("proposal failed with status: %d - %s", proposalResponse.Response.Status, proposalResponse.Response.Message)
+	}
+
+	return i.writePackage(proposalResponse)
+}
+
+func (i *InstalledPackageGetter) writePackage(proposalResponse *pb.ProposalResponse) error {
+	result := &lb.GetInstalledChaincodePackageResult{}
+	err := proto.Unmarshal(proposalResponse.Response.Payload, result)
+	if err != nil {
+		return errors.Wrap(err, "failed to unmarshal proposal response's response payload")
+	}
+
+	outputFile := filepath.Join(i.Input.OutputDirectory, i.Input.PackageID+".tar.gz")
+
+	dir, name := filepath.Split(outputFile)
+	// translate dir into absolute path
+	if dir, err = filepath.Abs(dir); err != nil {
+		return err
+	}
+
+	err = i.Writer.WriteFile(dir, name, result.ChaincodeInstallPackage)
+	if err != nil {
+		err = errors.Wrapf(err, "failed to write chaincode package to %s", outputFile)
+		logger.Error(err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (i *InstalledPackageGetter) createProposal() (*pb.Proposal, error) {
+	args := &lb.GetInstalledChaincodePackageArgs{
+		PackageId: i.Input.PackageID,
+	}
+
+	argsBytes, err := proto.Marshal(args)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal args")
+	}
+
+	ccInput := &pb.ChaincodeInput{
+		Args: [][]byte{[]byte("GetInstalledChaincodePackage"), argsBytes},
+	}
+
+	cis := &pb.ChaincodeInvocationSpec{
+		ChaincodeSpec: &pb.ChaincodeSpec{
+			ChaincodeId: &pb.ChaincodeID{Name: lifecycleName},
+			Input:       ccInput,
+		},
+	}
+
+	signerSerialized, err := i.Signer.Serialize()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to serialize identity")
+	}
+
+	proposal, _, err := protoutil.CreateProposalFromCIS(pcommon.HeaderType_ENDORSER_TRANSACTION, "", cis, signerSerialized)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to create ChaincodeInvocationSpec proposal")
+	}
+
+	return proposal, nil
+}
+
 func CustomChannelCreation(channelID string) {
 	logger.Info("Creating new channelID:", channelID)
 
@@ -151,11 +806,18 @@ func CustomChannelCreation(channelID string) {
 	var args []string
 	channel.Create(cmd, args, nil, channelID, outputCreateChannelTx)
 
+	// for testing...
+	// logger.Info("-------------- Fetching ---------------")
+	// channel.Fetch(cmd, args, nil, channelID)
+
 	// Channel join
 	blockPath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/" + channelID + ".block"
 	channel.Join(cmd, args, nil, blockPath)
 
-	logger.Info("Joining org2 to the channel")
+	// for testing...
+	// logger.Info("Joining org2 to the channel")
+	// channel.Fetch(cmd, args, nil, channelID)
+
 	joinChannelFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/joinchannel.sh"
 	cmdForJoinChannel, err := exec.Command(joinChannelFilePath, channelID).Output()
 	if err != nil {
@@ -164,13 +826,69 @@ func CustomChannelCreation(channelID string) {
 	output := string(cmdForJoinChannel)
 	logger.Info(output) // Print logs in the terminal
 
-	queryInstalledFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/queryInstalled.sh"
-	cmdForQueryInstalled, err := exec.Command(queryInstalledFilePath, "1", channelID).Output()
+	// queryInstalledFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/queryInstalled.sh"
+	// cmdForQueryInstalled, err := exec.Command(queryInstalledFilePath, "1", channelID).Output()
+	// if err != nil {
+	// 	logger.Info("error %s", err)
+	// }
+	// output1 := string(cmdForQueryInstalled)
+	// logger.Info(output1) // Print logs in the terminal
+
+	// TODO:
+	// 1. queryinstalled
+	// 2. approveformyorg
+	// 3. checkcommitreadiness
+	// 4. commit
+	// 5. approveformyorg
+	// 6. checkcommitreadiness
+	// 7. commit
+
+	// cryptoProvider := factory.GetDefault()
+	logger.Info("Removing import cycle errors")
+
+	// Approach: 01
+	// var o bjit.QueryInstalled = .AB{}
+	// err1 := o.QueryCall()
+	// _ = err1
+
+	// if err1 != nil {
+	// 	logger.Info("Not nil")
+	// } else {
+	// 	logger.Info("Nil")
+	// }
+
+	// Approach: 02
+	// pp1 := bjit.PP1{}
+	// pp1.HelloFromP2Side()
+
+	// Approach: 03
+	logger.Info("Before:")
+	logger.Info("Peer Address: ", peerAddresses)
+	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+
+	peerAddresses = []string{}
+	tlsRootCertFiles = []string{}
+
+	peerAddresses = append(peerAddresses, "localhost:7051")
+	tlsRootCertFiles = append(tlsRootCertFiles, "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt")
+
+	logger.Info("After:")
+	logger.Info("Peer Address: ", peerAddresses)
+	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+
+	err = QueryInstalled()
 	if err != nil {
-		logger.Info("error %s", err)
+		logger.Info("Not nil", err)
+	} else {
+		logger.Info("Query Installed is okay.", err)
 	}
-	output = string(cmdForQueryInstalled)
-	logger.Info(output) // Print logs in the terminal
+
+	err = GetInstalledPackage()
+	if err != nil {
+		logger.Info("Not nil", err)
+	} else {
+		logger.Info("Get Query Installed Package is okay.", err)
+	}
 }
 
 // Author: Prince

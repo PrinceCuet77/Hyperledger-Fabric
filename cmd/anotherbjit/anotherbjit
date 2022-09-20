@@ -1,0 +1,9 @@
+package anotherbjit
+
+import "github.com/hyperledger/fabric/cmd/bjit"
+
+func another() {
+	pp1 := bjit.PP1{}
+	// pp1 := bjit.New()
+	pp1.HelloFromP2Side()
+}

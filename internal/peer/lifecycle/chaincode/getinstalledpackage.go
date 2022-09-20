@@ -57,6 +57,14 @@ func GetInstalledPackageCmd(i *InstalledPackageGetter, cryptoProvider bccsp.BCCS
 		Long:  "Get an installed chaincode package from a peer.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if i == nil {
+				logger.Info("---------------------------- Get Installed Package file --------------------------------- ")
+				logger.Info("CommandName:", cmd.Name())
+				logger.Info("PeerAddresses:", peerAddresses)
+				logger.Info("TLSRootCertFiles:", tlsRootCertFiles)
+				logger.Info("ConnectionProfilePath:", connectionProfilePath)
+				logger.Info("TargetPeer:", targetPeer)
+				logger.Info("TLSEnabled:", viper.GetBool("peer.tls.enabled"))
+
 				ccInput := &ClientConnectionsInput{
 					CommandName:           cmd.Name(),
 					EndorserRequired:      true,
@@ -66,16 +74,19 @@ func GetInstalledPackageCmd(i *InstalledPackageGetter, cryptoProvider bccsp.BCCS
 					TargetPeer:            targetPeer,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
+				logger.Info("ccInput:", ccInput)
 
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
 					return err
 				}
+				logger.Info("cc:", cc)
 
 				gipInput := &GetInstalledPackageInput{
 					PackageID:       packageID,
 					OutputDirectory: outputDirectory,
 				}
+				logger.Info("gipInput:", gipInput)
 
 				// getinstalledpackage only supports one peer connection,
 				// which is why we only wire in the first endorser
@@ -87,6 +98,7 @@ func GetInstalledPackageCmd(i *InstalledPackageGetter, cryptoProvider bccsp.BCCS
 					Signer:         cc.Signer,
 					Writer:         &persistence.FilesystemIO{},
 				}
+				logger.Info("i:", i)
 			}
 			return i.Get()
 		},
