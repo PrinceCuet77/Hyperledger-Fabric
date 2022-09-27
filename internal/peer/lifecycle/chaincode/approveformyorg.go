@@ -102,6 +102,7 @@ func ApproveForMyOrgCmd(a *ApproverForMyOrg, cryptoProvider bccsp.BCCSP) *cobra.
 					ConnectionProfilePath: connectionProfilePath,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
+				// logger.Info("cmd:", cmd.Name())
 
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
@@ -163,23 +164,28 @@ func (a *ApproverForMyOrg) Approve() error {
 	}
 
 	proposal, txID, err := a.createProposal(a.Input.TxID)
+	// logger.Info("----------- inside afmo file ---- proposal:", proposal)
 	if err != nil {
 		return errors.WithMessage(err, "failed to create proposal")
 	}
 
 	signedProposal, err := signProposal(proposal, a.Signer)
+	// logger.Info("----------- inside afmo file ---- signedProposal:", signedProposal)
 	if err != nil {
 		return errors.WithMessage(err, "failed to create signed proposal")
 	}
 
 	var responses []*pb.ProposalResponse
 	for _, endorser := range a.EndorserClients {
+		// logger.Info("----------- inside afmo file ---- context.Background:", context.Background())
+		// logger.Info("----------- inside afmo file ---- signedProposal:", signedProposal)
 		proposalResponse, err := endorser.ProcessProposal(context.Background(), signedProposal)
 		if err != nil {
 			return errors.WithMessage(err, "failed to endorse proposal")
 		}
 		responses = append(responses, proposalResponse)
 	}
+	// logger.Info("----------- inside afmo file:", responses)
 
 	if len(responses) == 0 {
 		// this should only be empty due to a programming bug
@@ -255,6 +261,22 @@ func (a *ApproverForMyOrg) createInput() (*ApproveForMyOrgInput, error) {
 		return nil, err
 	}
 
+	// Way 01
+	// logger.Info("================ chaincodeVersion:", chaincodeVersion)
+	// chaincode.CcVersion = &chaincodeVersion
+	// logger.Info("------------------------- chaincode.CcVersion:", chaincode.CcVersion, " & *chaincode.CcVersion:", *chaincode.CcVersion, " & chaincodeVersion: ", chaincodeVersion)
+
+	// Way 02
+	// os.Setenv("CCVersion", chaincodeVersion)
+	// logger.Info("CCVersion:", os.Getenv("CCVersion"))
+	// val, ok := os.LookupEnv("CCVersion")
+	// versionCC = val
+	// logger.Info("------------------------ environment variable:", val, " & ok:", ok, " & versionCC:", versionCC)
+
+	// Way 03
+	chaincode.Vers = chaincodeVersion
+	// logger.Info("chaincodeVersion:", chaincodeVersion, " & Vers:", chaincode.Vers)
+
 	input := &ApproveForMyOrgInput{
 		ChannelID:                channelID,
 		Name:                     chaincodeName,
@@ -271,8 +293,14 @@ func (a *ApproverForMyOrg) createInput() (*ApproveForMyOrgInput, error) {
 		WaitForEventTimeout:      waitForEventTimeout,
 	}
 
+	// logger.Info("================ chaincodeVersion:", chaincodeVersion)
+	// logger.Info("================ input.Version:", input.Version)
+	// logger.Info("================ input.Sequence:", input.Sequence)
+
 	return input, nil
 }
+
+// var versionCC string
 
 func (a *ApproverForMyOrg) createProposal(inputTxID string) (proposal *pb.Proposal, txID string, err error) {
 	if a.Signer == nil {

@@ -7,6 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package chaincode
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -20,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-chaincode-go/shim"
@@ -39,6 +43,7 @@ import (
 	"github.com/hyperledger/fabric/internal/configtxgen/genesisconfig"
 	"github.com/hyperledger/fabric/internal/peer/channel"
 	"github.com/hyperledger/fabric/internal/peer/common"
+	"github.com/hyperledger/fabric/internal/peer/packaging"
 
 	// "github.com/hyperledger/fabric/internal/peer/lifecycle/chaincode"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
@@ -86,6 +91,11 @@ func getChaincodeDeploymentSpec(spec *pb.ChaincodeSpec, crtPkg bool) (*pb.Chainc
 	return &pb.ChaincodeDeploymentSpec{ChaincodeSpec: spec, CodePackage: codePackageBytes}, nil
 }
 
+var (
+	CcVersion *string
+	Vers      string
+)
+
 // getChaincodeSpec get chaincode spec from the cli cmd parameters
 func getChaincodeSpec(cmd *cobra.Command) (*pb.ChaincodeSpec, error) {
 	spec := &pb.ChaincodeSpec{}
@@ -108,6 +118,7 @@ func getChaincodeSpec(cmd *cobra.Command) (*pb.ChaincodeSpec, error) {
 		ChaincodeId: &pb.ChaincodeID{Path: chaincodePath, Name: chaincodeName, Version: chaincodeVersion},
 		Input:       &input.ChaincodeInput,
 	}
+
 	return spec, nil
 }
 
@@ -141,6 +152,306 @@ type externalVMAdapter struct {
 }
 
 // Author: Prince
+// ------------------------ Start for Package -----------------------------------
+type PackagerCC struct {
+	Command          *cobra.Command
+	Input            *PackageInputCC
+	PlatformRegistry PlatformRegistry
+	Writer           Writer
+}
+
+func Package() error {
+	pr := packaging.NewRegistry(packaging.SupportedPlatforms...)
+
+	p := &PackagerCC{
+		PlatformRegistry: pr,
+		Writer:           &persistence.FilesystemIO{},
+	}
+
+	p.Command = cmd
+
+	args := []string{"basic.tar.gz"}
+	return p.PackageChaincode(args)
+}
+
+type PlatformRegistry interface {
+	GetDeploymentPayload(ccType, path string) ([]byte, error)
+	NormalizePath(ccType, path string) (string, error)
+}
+
+// PackageChaincode packages a chaincode.
+func (p *PackagerCC) PackageChaincode(args []string) error {
+	if p.Command != nil {
+		// Parsing of the command line is done so silence cmd usage
+		p.Command.SilenceUsage = true
+	}
+
+	if len(args) != 1 {
+		return errors.New("invalid number of args. expected only the output file")
+	}
+	p.setInput(args[0])
+
+	return p.Package()
+}
+
+type PackageInputCC struct {
+	OutputFile string
+	Path       string
+	Type       string
+	Label      string
+}
+
+// Validate checks for the required inputs
+func (p *PackageInputCC) Validate() error {
+	if p.Path == "" {
+		return errors.New("chaincode path must be specified")
+	}
+	if p.Type == "" {
+		return errors.New("chaincode language must be specified")
+	}
+	if p.OutputFile == "" {
+		return errors.New("output file must be specified")
+	}
+	if p.Label == "" {
+		return errors.New("package label must be specified")
+	}
+	if err := persistence.ValidateLabel(p.Label); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var (
+	packageLabel string
+)
+
+func (p *PackagerCC) setInput(outputFile string) {
+	chaincodePath = "../chaincode/asset-transfer-basic/chaincode-go/"
+	chaincodeLang = "golang"
+	packageLabel = "basic_1"
+
+	p.Input = &PackageInputCC{
+		OutputFile: outputFile,
+		Path:       chaincodePath,
+		Type:       chaincodeLang,
+		Label:      packageLabel,
+	}
+
+	// logger.Info("**************common************************")
+	// logger.Info("OutputFile:", outputFile)
+	// logger.Info("Path:", chaincodePath)
+	// logger.Info("Type:", chaincodeLang)
+	// logger.Info("Label:", packageLabel)
+	// logger.Info("***************common***********************")
+}
+
+// Package packages chaincodes into the package type,
+// (.tar.gz) used by _lifecycle and writes it to disk
+func (p *PackagerCC) Package() error {
+	err := p.Input.Validate()
+	if err != nil {
+		return err
+	}
+
+	pkgTarGzBytes, err := p.getTarGzBytes()
+	if err != nil {
+		return err
+	}
+
+	dir, name := filepath.Split(p.Input.OutputFile)
+	// if p.Input.OutputFile is only file name, dir becomes an empty string that creates problem
+	// while invoking 'WriteFile' function below. So, irrespective, translate dir into absolute path
+	if dir, err = filepath.Abs(dir); err != nil {
+		return err
+	}
+	err = p.Writer.WriteFile(dir, name, pkgTarGzBytes)
+	if err != nil {
+		err = errors.Wrapf(err, "error writing chaincode package to %s", p.Input.OutputFile)
+		logger.Error(err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (p *PackagerCC) getTarGzBytes() ([]byte, error) {
+	payload := bytes.NewBuffer(nil)
+	gw := gzip.NewWriter(payload)
+	tw := tar.NewWriter(gw)
+
+	normalizedPath, err := p.PlatformRegistry.NormalizePath(strings.ToUpper(p.Input.Type), p.Input.Path)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to normalize chaincode path")
+	}
+	metadataBytes, err := toJSON(normalizedPath, p.Input.Type, p.Input.Label)
+	if err != nil {
+		return nil, err
+	}
+	err = writeBytesToPackage(tw, "metadata.json", metadataBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "error writing package metadata to tar")
+	}
+
+	codeBytes, err := p.PlatformRegistry.GetDeploymentPayload(strings.ToUpper(p.Input.Type), p.Input.Path)
+	if err != nil {
+		return nil, errors.WithMessage(err, "error getting chaincode bytes")
+	}
+
+	codePackageName := "code.tar.gz"
+
+	err = writeBytesToPackage(tw, codePackageName, codeBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "error writing package code bytes to tar")
+	}
+
+	err = tw.Close()
+	if err == nil {
+		err = gw.Close()
+	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create tar for chaincode")
+	}
+
+	return payload.Bytes(), nil
+}
+
+func writeBytesToPackage(tw *tar.Writer, name string, payload []byte) error {
+	err := tw.WriteHeader(&tar.Header{
+		Name: name,
+		Size: int64(len(payload)),
+		Mode: 0o100644,
+	})
+	if err != nil {
+		return err
+	}
+
+	_, err = tw.Write(payload)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func toJSON(path, ccType, label string) ([]byte, error) {
+	metadata := &PackageMetadata{
+		Path:  path,
+		Type:  ccType,
+		Label: label,
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal chaincode package metadata into JSON")
+	}
+
+	return metadataBytes, nil
+}
+
+type PackageMetadata struct {
+	Path  string `json:"path"`
+	Type  string `json:"type"`
+	Label string `json:"label"`
+}
+
+// ------------------------ Start for Calculate Package ID ---------------------------
+type PackageIDCalculator struct {
+	Command *cobra.Command
+	Input   *CalculatePackageIDInput
+	Reader  Reader
+	Writer  io.Writer
+}
+
+type Reader interface {
+	ReadFile(string) ([]byte, error)
+}
+
+type CalculatePackageIDInput struct {
+	PackageFile  string
+	OutputFormat string
+}
+
+func CalculatePackageID() error {
+	p := &PackageIDCalculator{
+		Reader: &persistence.FilesystemIO{},
+		Writer: os.Stdout,
+	}
+	p.Command = cmd
+	args := []string{"basic.tar.gz"}
+
+	return p.CalculatePackageID(args)
+}
+
+// PackageIDCalculator calculates the package ID for a packaged chaincode.
+func (p *PackageIDCalculator) CalculatePackageID(args []string) error {
+	if p.Command != nil {
+		// Parsing of the command line is done so silence cmd usage
+		p.Command.SilenceUsage = true
+	}
+
+	if len(args) != 1 {
+		return errors.New("invalid number of args. expected only the packaged chaincode file")
+	}
+	p.setInput(args[0])
+
+	return p.PackageID()
+}
+
+// Validate checks that the required parameters are provided
+func (i *CalculatePackageIDInput) Validate() error {
+	if i.PackageFile == "" {
+		return errors.New("chaincode install package must be provided")
+	}
+
+	return nil
+}
+
+type CalculatePackageIDOutput struct {
+	PackageID string `json:"package_id"`
+}
+
+// PackageID calculates the package ID for a packaged chaincode and print it.
+func (p *PackageIDCalculator) PackageID() error {
+	err := p.Input.Validate()
+	if err != nil {
+		return err
+	}
+	pkgBytes, err := p.Reader.ReadFile(p.Input.PackageFile)
+	if err != nil {
+		return errors.WithMessagef(err, "failed to read chaincode package at '%s'", p.Input.PackageFile)
+	}
+
+	metadata, _, err := persistence.ParseChaincodePackage(pkgBytes)
+	if err != nil {
+		return errors.WithMessage(err, "could not parse as a chaincode install package")
+	}
+
+	packageID := persistence.PackageID(metadata.Label, pkgBytes)
+
+	if strings.ToLower(p.Input.OutputFormat) == "json" {
+		output := CalculatePackageIDOutput{
+			PackageID: packageID,
+		}
+		outputJson, err := json.MarshalIndent(&output, "", "\t")
+		if err != nil {
+			return errors.WithMessage(err, "failed to marshal output")
+		}
+		fmt.Fprintf(p.Writer, "%s\n", string(outputJson))
+		return nil
+	}
+
+	fmt.Fprintf(p.Writer, "%s\n", packageID)
+	return nil
+}
+
+func (p *PackageIDCalculator) setInput(packageFile string) {
+	p.Input = &CalculatePackageIDInput{
+		PackageFile:  packageFile,
+		OutputFormat: output,
+	}
+}
+
 // ------------------------ Start for Query Installed ---------------------------
 type ClientConnectionsInput struct {
 	CommandName           string
@@ -184,32 +495,31 @@ type InstalledQuerier struct {
 }
 
 var cryptoProvider = factory.GetDefault()
+var cmd *cobra.Command
 
 func QueryInstalled() error {
-	var cmd *cobra.Command
-
-	logger.Info("-------------------------------- Common File --------------------------")
-	logger.Info("Peer Address: ", peerAddresses)
-	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
-	logger.Info("Connection Profile Path: ", connectionProfilePath)
-	logger.Info("Target Peer: ", targetPeer)
-	logger.Info("-------------------------------- end of Common File --------------------------")
+	// logger.Info("-------------------------------- Common File --------------------------")
+	// logger.Info("Peer Address: ", peerAddresses)
+	// logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+	// logger.Info("Connection Profile Path: ", connectionProfilePath)
+	// logger.Info("Target Peer: ", targetPeer)
+	// logger.Info("-------------------------------- end of Common File --------------------------")
 
 	// for i := 0; i < 2; i++ {
 	// 	peerAddresses[i] = ""
 	// 	tlsRootCertFiles[i] = ""
 	// }
 
-	logger.Info("Before:")
-	logger.Info("Peer Address: ", peerAddresses)
-	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+	// logger.Info("Before:")
+	// logger.Info("Peer Address: ", peerAddresses)
+	// logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
 
 	// peerAddresses = []string{}
 	// tlsRootCertFiles = []string{}
 
-	logger.Info("After:")
-	logger.Info("Peer Address: ", peerAddresses)
-	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+	// logger.Info("After:")
+	// logger.Info("Peer Address: ", peerAddresses)
+	// logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
 
 	ccInput := &ClientConnectionsInput{
 		CommandName:           "queryinstalled",
@@ -220,30 +530,30 @@ func QueryInstalled() error {
 		TargetPeer:            targetPeer,
 		TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 	}
-	logger.Info("CommandName: ", ccInput.CommandName)
-	logger.Info("Endorse Required: ", ccInput.EndorserRequired)
-	logger.Info("Peer Addresses: ", ccInput.PeerAddresses)
-	logger.Info("TLS Root Cert Files: ", ccInput.TLSRootCertFiles)
-	logger.Info("Connection Profile Path: ", ccInput.ConnectionProfilePath)
-	logger.Info("Target Peer: ", ccInput.TargetPeer)
-	logger.Info("TLS Enabled: ", ccInput.TLSEnabled)
+	// logger.Info("CommandName: ", ccInput.CommandName)
+	// logger.Info("Endorse Required: ", ccInput.EndorserRequired)
+	// logger.Info("Peer Addresses: ", ccInput.PeerAddresses)
+	// logger.Info("TLS Root Cert Files: ", ccInput.TLSRootCertFiles)
+	// logger.Info("Connection Profile Path: ", ccInput.ConnectionProfilePath)
+	// logger.Info("Target Peer: ", ccInput.TargetPeer)
+	// logger.Info("TLS Enabled: ", ccInput.TLSEnabled)
 
 	// ccInput:  &{queryinstalled true false   [] []   true}
-	logger.Info("ccInput: ", ccInput)
+	// logger.Info("ccInput: ", ccInput)
 
 	// cryptoProvider := factory.GetDefault()
-	logger.Info("cryptoProvider: ", cryptoProvider)
+	// logger.Info("cryptoProvider: ", cryptoProvider)
 
 	cc, err := NewClientConnections(ccInput, cryptoProvider)
 	if err != nil {
 		return err
 	}
-	logger.Info("cc: ", cc)
+	// logger.Info("cc: ", cc)
 
 	iqInput := &InstalledQueryInput{
 		OutputFormat: output,
 	}
-	logger.Info("iqInput: ", iqInput)
+	// logger.Info("iqInput: ", iqInput)
 
 	// queryinstalled only supports one peer connection,
 	// which is why we only wire in the first endorser
@@ -255,7 +565,7 @@ func QueryInstalled() error {
 		Signer:         cc.Signer,
 		Writer:         os.Stdout,
 	}
-	logger.Info("i: ", i)
+	// logger.Info("i: ", i)
 
 	return i.Query()
 }
@@ -465,7 +775,7 @@ func (i *InstalledQuerier) Query() error {
 		i.Command.SilenceUsage = true
 	}
 
-	proposal, err := i.createProposal()
+	proposal, err := i.createProposalForQuery()
 	if err != nil {
 		return errors.WithMessage(err, "failed to create proposal")
 	}
@@ -489,6 +799,7 @@ func (i *InstalledQuerier) Query() error {
 	}
 
 	if proposalResponse.Response.Status != int32(pcommon.Status_SUCCESS) {
+		logger.Info("Hello")
 		return errors.Errorf("query failed with status: %d - %s", proposalResponse.Response.Status, proposalResponse.Response.Message)
 	}
 
@@ -511,6 +822,8 @@ func (i *InstalledQuerier) printResponse(proposalResponse *pb.ProposalResponse) 
 		// logger.Info("-------chaincode.PackageId:", chaincode.PackageId)
 		if chaincode.Label == "basic_1" {
 			packageID = chaincode.PackageId
+			versioncc = chaincode.Label[6:]
+			sequencecc, _ = strconv.Atoi(versioncc)
 			// logger.Info("-------chaincode.PackageId2:", chaincode.PackageId)
 			// logger.Info("-------packageID3:", packageID)
 		}
@@ -568,7 +881,7 @@ const (
 	lifecycleName = "_lifecycle"
 )
 
-func (i *InstalledQuerier) createProposal() (*pb.Proposal, error) {
+func (i *InstalledQuerier) createProposalForQuery() (*pb.Proposal, error) {
 	args := &lb.QueryInstalledChaincodesArgs{}
 
 	argsBytes, err := proto.Marshal(args)
@@ -610,6 +923,7 @@ type GetInstalledPackageInput struct {
 var (
 	packageID       string
 	outputDirectory string
+	versioncc       string
 )
 
 type InstalledPackageGetter struct {
@@ -625,7 +939,7 @@ type Writer interface {
 }
 
 func GetInstalledPackage() error {
-	logger.Info("---------------------------- Common file --------------------------------- ")
+	// logger.Info("---------------------------- Common file --------------------------------- ")
 	// logger.Info("CommandName:", cmd.Name())
 	// logger.Info("PeerAddresses:", peerAddresses)
 	// logger.Info("TLSRootCertFiles:", tlsRootCertFiles)
@@ -657,8 +971,6 @@ func GetInstalledPackage() error {
 	}
 	// logger.Info("gipInput:", gipInput)
 	// logger.Info("gipInput.PackageID:", gipInput.PackageID)
-
-	var cmd *cobra.Command
 
 	// getinstalledpackage only supports one peer connection,
 	// which is why we only wire in the first endorser
@@ -695,7 +1007,7 @@ func (i *InstalledPackageGetter) Get() error {
 		return err
 	}
 
-	proposal, err := i.createProposal()
+	proposal, err := i.createProposalForPackage()
 	if err != nil {
 		return errors.WithMessage(err, "failed to create proposal")
 	}
@@ -750,7 +1062,7 @@ func (i *InstalledPackageGetter) writePackage(proposalResponse *pb.ProposalRespo
 	return nil
 }
 
-func (i *InstalledPackageGetter) createProposal() (*pb.Proposal, error) {
+func (i *InstalledPackageGetter) createProposalForPackage() (*pb.Proposal, error) {
 	args := &lb.GetInstalledChaincodePackageArgs{
 		PackageId: i.Input.PackageID,
 	}
@@ -782,6 +1094,358 @@ func (i *InstalledPackageGetter) createProposal() (*pb.Proposal, error) {
 	}
 
 	return proposal, nil
+}
+
+// approveformyorg
+
+type ApproverForMyOrg struct {
+	Certificate     tls.Certificate
+	Command         *cobra.Command
+	BroadcastClient common.BroadcastClient
+	DeliverClients  []pb.DeliverClient
+	EndorserClients []EndorserClient
+	Input           *ApproveForMyOrgInput
+	Signer          Signer
+}
+
+type ApproveForMyOrgInput struct {
+	ChannelID                string
+	Name                     string
+	Version                  string
+	PackageID                string
+	Sequence                 int64
+	EndorsementPlugin        string
+	ValidationPlugin         string
+	ValidationParameterBytes []byte
+	CollectionConfigPackage  *pb.CollectionConfigPackage
+	InitRequired             bool
+	PeerAddresses            []string
+	WaitForEvent             bool
+	WaitForEventTimeout      time.Duration
+	TxID                     string
+}
+
+func ApproveForMyOrg() error {
+	a := &ApproverForMyOrg{}
+	input, err := a.createInput()
+	if err != nil {
+		return err
+	}
+
+	ccInput := &ClientConnectionsInput{
+		CommandName:           "approveformyorg",
+		EndorserRequired:      true,
+		OrdererRequired:       true,
+		ChannelID:             channelID,
+		PeerAddresses:         peerAddresses,
+		TLSRootCertFiles:      tlsRootCertFiles,
+		ConnectionProfilePath: connectionProfilePath,
+		TLSEnabled:            viper.GetBool("peer.tls.enabled"),
+	}
+	// 	logger.Info("cmd:", cmd.Name())
+
+	cc, err := NewClientConnections(ccInput, cryptoProvider)
+	if err != nil {
+		return err
+	}
+
+	endorserClients := make([]EndorserClient, len(cc.EndorserClients))
+	for i, e := range cc.EndorserClients {
+		endorserClients[i] = e
+	}
+
+	a = &ApproverForMyOrg{
+		Command:         cmd,
+		Input:           input,
+		Certificate:     cc.Certificate,
+		BroadcastClient: cc.BroadcastClient,
+		DeliverClients:  cc.DeliverClients,
+		EndorserClients: endorserClients,
+		Signer:          cc.Signer,
+	}
+
+	return a.Approve()
+}
+
+// Validate the input for an ApproveChaincodeDefinitionForMyOrg proposal
+func (a *ApproveForMyOrgInput) Validate() error {
+	if a.ChannelID == "" {
+		return errors.New("The required parameter 'channelID' is empty. Rerun the command with -C flag")
+	}
+
+	if a.Name == "" {
+		return errors.New("The required parameter 'name' is empty. Rerun the command with -n flag")
+	}
+
+	if a.Version == "" {
+		return errors.New("The required parameter 'version' is empty. Rerun the command with -v flag")
+	}
+
+	if a.Sequence == 0 {
+		return errors.New("The required parameter 'sequence' is empty. Rerun the command with --sequence flag")
+	}
+
+	return nil
+}
+
+// Approve submits a ApproveChaincodeDefinitionForMyOrg
+// proposal
+func (a *ApproverForMyOrg) Approve() error {
+	err := a.Input.Validate()
+	if err != nil {
+		return err
+	}
+
+	if a.Command != nil {
+		// Parsing of the command line is done so silence cmd usage
+		a.Command.SilenceUsage = true
+	}
+
+	proposal, txID, err := a.createProposal(a.Input.TxID)
+	// logger.Info("----------- inside afmo file ---- proposal:", proposal)
+	if err != nil {
+		return errors.WithMessage(err, "failed to create proposal")
+	}
+
+	signedProposal, err := signProposal(proposal, a.Signer)
+	// logger.Info("----------- inside common file ---- signedProposal:", signedProposal)
+	if err != nil {
+		return errors.WithMessage(err, "failed to create signed proposal")
+	}
+
+	var responses []*pb.ProposalResponse
+	for _, endorser := range a.EndorserClients {
+		// logger.Info("----------- inside common file ---- context.Background:", context.Background())
+		// logger.Info("----------- inside common file ---- signedProposal:", signedProposal)
+		proposalResponse, err := endorser.ProcessProposal(context.Background(), signedProposal)
+		if err != nil {
+			return errors.WithMessage(err, "failed to endorse proposal")
+		}
+		responses = append(responses, proposalResponse)
+	}
+	// logger.Info("----------- inside common file:", responses)
+
+	if len(responses) == 0 {
+		// this should only be empty due to a programming bug
+		return errors.New("no proposal responses received")
+	}
+
+	// all responses will be checked when the signed transaction is created.
+	// for now, just set this so we check the first response's status
+	proposalResponse := responses[0]
+
+	if proposalResponse == nil {
+		return errors.New("received nil proposal response")
+	}
+
+	if proposalResponse.Response == nil {
+		return errors.Errorf("received proposal response with nil response")
+	}
+
+	if proposalResponse.Response.Status != int32(pcommon.Status_SUCCESS) {
+		logger.Info("Hello - 1")
+		return errors.Errorf("proposal failed with status: %d - %s", proposalResponse.Response.Status, proposalResponse.Response.Message)
+	}
+	// assemble a signed transaction (it's an Envelope message)
+	env, err := protoutil.CreateSignedTx(proposal, a.Signer, responses...)
+	if err != nil {
+		return errors.WithMessage(err, "failed to create signed transaction")
+	}
+	var dg *DeliverGroup
+	var ctx context.Context
+	if a.Input.WaitForEvent {
+		var cancelFunc context.CancelFunc
+		ctx, cancelFunc = context.WithTimeout(context.Background(), a.Input.WaitForEventTimeout)
+		defer cancelFunc()
+
+		dg = NewDeliverGroup(
+			a.DeliverClients,
+			a.Input.PeerAddresses,
+			a.Signer,
+			a.Certificate,
+			a.Input.ChannelID,
+			txID,
+		)
+		// connect to deliver service on all peers
+		err := dg.Connect(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err = a.BroadcastClient.Send(env); err != nil {
+		return errors.WithMessage(err, "failed to send transaction")
+	}
+
+	if dg != nil && ctx != nil {
+		// wait for event that contains the txID from all peers
+		err = dg.Wait(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
+const (
+	approveFuncName = "ApproveChaincodeDefinitionForMyOrg"
+)
+
+func (a *ApproverForMyOrg) createProposal(inputTxID string) (proposal *pb.Proposal, txID string, err error) {
+	if a.Signer == nil {
+		return nil, "", errors.New("nil signer provided")
+	}
+
+	var ccsrc *lb.ChaincodeSource
+	if a.Input.PackageID != "" {
+		ccsrc = &lb.ChaincodeSource{
+			Type: &lb.ChaincodeSource_LocalPackage{
+				LocalPackage: &lb.ChaincodeSource_Local{
+					PackageId: a.Input.PackageID,
+				},
+			},
+		}
+	} else {
+		ccsrc = &lb.ChaincodeSource{
+			Type: &lb.ChaincodeSource_Unavailable_{
+				Unavailable: &lb.ChaincodeSource_Unavailable{},
+			},
+		}
+	}
+
+	args := &lb.ApproveChaincodeDefinitionForMyOrgArgs{
+		Name:                a.Input.Name,
+		Version:             a.Input.Version,
+		Sequence:            a.Input.Sequence,
+		EndorsementPlugin:   a.Input.EndorsementPlugin,
+		ValidationPlugin:    a.Input.ValidationPlugin,
+		ValidationParameter: a.Input.ValidationParameterBytes,
+		InitRequired:        a.Input.InitRequired,
+		Collections:         a.Input.CollectionConfigPackage,
+		Source:              ccsrc,
+	}
+	// logger.Info("args.Version:-----------", args.Version)
+	// logger.Info("args.Sequence:-----------", args.Sequence)
+
+	argsBytes, err := proto.Marshal(args)
+	if err != nil {
+		return nil, "", err
+	}
+	ccInput := &pb.ChaincodeInput{Args: [][]byte{[]byte(approveFuncName), argsBytes}}
+
+	cis := &pb.ChaincodeInvocationSpec{
+		ChaincodeSpec: &pb.ChaincodeSpec{
+			ChaincodeId: &pb.ChaincodeID{Name: lifecycleName},
+			Input:       ccInput,
+		},
+	}
+
+	creatorBytes, err := a.Signer.Serialize()
+	if err != nil {
+		return nil, "", errors.WithMessage(err, "failed to serialize identity")
+	}
+
+	proposal, txID, err = protoutil.CreateChaincodeProposalWithTxIDAndTransient(pcommon.HeaderType_ENDORSER_TRANSACTION, a.Input.ChannelID, cis, creatorBytes, inputTxID, nil)
+	if err != nil {
+		return nil, "", errors.WithMessage(err, "failed to create ChaincodeInvocationSpec proposal")
+	}
+
+	return proposal, txID, nil
+}
+
+var (
+	signaturePolicy     string
+	channelConfigPolicy string
+	sequence            int
+	sequencecc          int
+	endorsementPlugin   string
+	validationPlugin    string
+	initRequired        bool
+)
+
+// createInput creates the input struct based on the CLI flags
+func (a *ApproverForMyOrg) createInput() (*ApproveForMyOrgInput, error) {
+	policyBytes, err := createPolicyBytes(signaturePolicy, channelConfigPolicy)
+	if err != nil {
+		return nil, err
+	}
+
+	ccp, err := createCollectionConfigPackage(collectionsConfigFile)
+	if err != nil {
+		return nil, err
+	}
+
+	input := &ApproveForMyOrgInput{
+		ChannelID: channelID,
+		Name:      chaincodeName,
+		// Version:                  chaincodeVersion,
+		Version:   versioncc,
+		PackageID: packageID,
+		// Sequence:                 int64(sequence),
+		Sequence:                 int64(sequencecc),
+		EndorsementPlugin:        endorsementPlugin,
+		ValidationPlugin:         validationPlugin,
+		ValidationParameterBytes: policyBytes,
+		InitRequired:             initRequired,
+		CollectionConfigPackage:  ccp,
+		PeerAddresses:            peerAddresses,
+		WaitForEvent:             waitForEvent,
+		WaitForEventTimeout:      waitForEventTimeout,
+	}
+	logger.Info("input.Version:- --------------", input.Version)
+	logger.Info("input.Sequence:- --------------", input.Sequence)
+
+	return input, nil
+}
+
+func createCollectionConfigPackage(collectionsConfigFile string) (*pb.CollectionConfigPackage, error) {
+	var ccp *pb.CollectionConfigPackage
+	if collectionsConfigFile != "" {
+		var err error
+		ccp, _, err = GetCollectionConfigFromFile(collectionsConfigFile)
+		if err != nil {
+			return nil, errors.WithMessagef(err, "invalid collection configuration in file %s", collectionsConfigFile)
+		}
+	}
+	return ccp, nil
+}
+
+func createPolicyBytes(signaturePolicy, channelConfigPolicy string) ([]byte, error) {
+	if signaturePolicy == "" && channelConfigPolicy == "" {
+		// no policy, no problem
+		return nil, nil
+	}
+
+	if signaturePolicy != "" && channelConfigPolicy != "" {
+		// mo policies, mo problems
+		return nil, errors.New("cannot specify both \"--signature-policy\" and \"--channel-config-policy\"")
+	}
+
+	var applicationPolicy *pb.ApplicationPolicy
+	if signaturePolicy != "" {
+		signaturePolicyEnvelope, err := policydsl.FromString(signaturePolicy)
+		if err != nil {
+			return nil, errors.Errorf("invalid signature policy: %s", signaturePolicy)
+		}
+
+		applicationPolicy = &pb.ApplicationPolicy{
+			Type: &pb.ApplicationPolicy_SignaturePolicy{
+				SignaturePolicy: signaturePolicyEnvelope,
+			},
+		}
+	}
+
+	if channelConfigPolicy != "" {
+		applicationPolicy = &pb.ApplicationPolicy{
+			Type: &pb.ApplicationPolicy_ChannelConfigPolicyReference{
+				ChannelConfigPolicyReference: channelConfigPolicy,
+			},
+		}
+	}
+
+	policyBytes := protoutil.MarshalOrPanic(applicationPolicy)
+	return policyBytes, nil
 }
 
 func CustomChannelCreation(channelID string) {
@@ -836,12 +1500,11 @@ func CustomChannelCreation(channelID string) {
 
 	// TODO:
 	// 1. queryinstalled
-	// 2. approveformyorg
+	// 2. approveformyorg using org1
 	// 3. checkcommitreadiness
-	// 4. commit
-	// 5. approveformyorg
-	// 6. checkcommitreadiness
-	// 7. commit
+	// 4. approveformyorg using org2
+	// 5. checkcommitreadiness
+	// 6. commit using any org
 
 	// cryptoProvider := factory.GetDefault()
 	logger.Info("Removing import cycle errors")
@@ -862,9 +1525,9 @@ func CustomChannelCreation(channelID string) {
 	// pp1.HelloFromP2Side()
 
 	// Approach: 03
-	logger.Info("Before:")
-	logger.Info("Peer Address: ", peerAddresses)
-	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+	// logger.Info("Before:")
+	// logger.Info("Peer Address: ", peerAddresses)
+	// logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
 
 	peerAddresses = []string{}
 	tlsRootCertFiles = []string{}
@@ -872,9 +1535,23 @@ func CustomChannelCreation(channelID string) {
 	peerAddresses = append(peerAddresses, "localhost:7051")
 	tlsRootCertFiles = append(tlsRootCertFiles, "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt")
 
-	logger.Info("After:")
-	logger.Info("Peer Address: ", peerAddresses)
-	logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+	// logger.Info("After:")
+	// logger.Info("Peer Address: ", peerAddresses)
+	// logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
+
+	err = Package()
+	if err != nil {
+		logger.Info("Not nil", err)
+	} else {
+		logger.Info("Package is okay.", err)
+	}
+
+	err = CalculatePackageID()
+	if err != nil {
+		logger.Info("Not nil", err)
+	} else {
+		logger.Info("Calculate Package ID is okay.", err)
+	}
 
 	err = QueryInstalled()
 	if err != nil {
@@ -889,6 +1566,32 @@ func CustomChannelCreation(channelID string) {
 	} else {
 		logger.Info("Get Query Installed Package is okay.", err)
 	}
+
+	// logger.Info("===========================================")
+	// Way 01
+	// logger.Info("=========file======= chaincodeVersion:", chaincodeVersion)
+	// chaincode.CcVersion = &chaincodeVersion
+	// logger.Info("---------file---------------- chaincode.CcVersion:", CcVersion, " & *chaincode.CcVersion:", *CcVersion, " & chaincodeVersion: ", chaincodeVersion)
+
+	// Way 02
+	// os.Setenv("CCVersion", chaincodeVersion)
+	// logger.Info("-----file---------CCVersion:", os.Getenv("CCVersion"))
+	// val, ok := os.LookupEnv("CCVersion")
+	// logger.Info("----------file-------------- environment variable:", val, " & ok:", ok)
+
+	// // Way 03
+	// Vers = chaincodeVersion
+	// logger.Info("-----file--------chaincodeVersion:", chaincodeVersion, " & Vers:", Vers)
+	// logger.Info("===========================================")
+
+	// logger.Info("==>>1CC:", os.Getenv("CC"))
+	// logger.Info("CcVersion:", CcVersion)
+	// err = ApproveForMyOrg()
+	// if err != nil {
+	// 	logger.Info("Not nil", err)
+	// } else {
+	// 	logger.Info("Approve for myOrg is okay.", err)
+	// }
 }
 
 // Author: Prince

@@ -64,6 +64,7 @@ func CalculatePackageIDCmd(p *PackageIDCalculator) *cobra.Command {
 				}
 			}
 			p.Command = cmd
+			logger.Info("*=*=*=*= args:", args)
 
 			return p.CalculatePackageID(args)
 		},

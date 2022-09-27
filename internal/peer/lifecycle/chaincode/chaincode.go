@@ -33,15 +33,15 @@ func addFlags(cmd *cobra.Command) {
 func Cmd(cryptoProvider bccsp.BCCSP) *cobra.Command {
 	addFlags(chaincodeCmd)
 
-	chaincodeCmd.AddCommand(PackageCmd(nil))
-	chaincodeCmd.AddCommand(CalculatePackageIDCmd(nil))
-	chaincodeCmd.AddCommand(InstallCmd(nil, cryptoProvider))
+	chaincodeCmd.AddCommand(PackageCmd(nil)) // 1
+	chaincodeCmd.AddCommand(CalculatePackageIDCmd(nil)) // 2
+	chaincodeCmd.AddCommand(InstallCmd(nil, cryptoProvider)) // 3
 	chaincodeCmd.AddCommand(QueryInstalledCmd(nil, cryptoProvider))
 	chaincodeCmd.AddCommand(GetInstalledPackageCmd(nil, cryptoProvider))
-	chaincodeCmd.AddCommand(ApproveForMyOrgCmd(nil, cryptoProvider))
+	chaincodeCmd.AddCommand(ApproveForMyOrgCmd(nil, cryptoProvider)) // 4
 	chaincodeCmd.AddCommand(QueryApprovedCmd(nil, cryptoProvider))
 	chaincodeCmd.AddCommand(CheckCommitReadinessCmd(nil, cryptoProvider))
-	chaincodeCmd.AddCommand(CommitCmd(nil, cryptoProvider))
+	chaincodeCmd.AddCommand(CommitCmd(nil, cryptoProvider)) // 5
 	chaincodeCmd.AddCommand(QueryCommittedCmd(nil, cryptoProvider))
 
 	return chaincodeCmd

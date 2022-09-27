@@ -79,6 +79,10 @@ var (
 	waitForEventTimeout   time.Duration
 )
 
+var (
+	hello string
+)
+
 var chaincodeCmd = &cobra.Command{
 	Use:   chainFuncName,
 	Short: fmt.Sprint(chainCmdDes),
