@@ -9,6 +9,9 @@ package chaincode
 import (
 	"context"
 	"crypto/tls"
+	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -102,7 +105,6 @@ func ApproveForMyOrgCmd(a *ApproverForMyOrg, cryptoProvider bccsp.BCCSP) *cobra.
 					ConnectionProfilePath: connectionProfilePath,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
-				// logger.Info("cmd:", cmd.Name())
 
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
@@ -270,12 +272,40 @@ func (a *ApproverForMyOrg) createInput() (*ApproveForMyOrgInput, error) {
 	// os.Setenv("CCVersion", chaincodeVersion)
 	// logger.Info("CCVersion:", os.Getenv("CCVersion"))
 	// val, ok := os.LookupEnv("CCVersion")
-	// versionCC = val
-	// logger.Info("------------------------ environment variable:", val, " & ok:", ok, " & versionCC:", versionCC)
+	// // versionCC = val
+	// logger.Info("------------------------ environment variable:", val, " & ok:", ok)
 
 	// Way 03
-	chaincode.Vers = chaincodeVersion
+	// chaincode.Vers = chaincodeVersion
 	// logger.Info("chaincodeVersion:", chaincodeVersion, " & Vers:", chaincode.Vers)
+
+	// Way 04
+	file, err := os.Create("test.txt")
+	if err != nil {
+		log.Fatalf("failed creating file: %s", err)
+	}
+	defer file.Close()
+
+	// str := chaincodeVersion + strconv.Itoa(sequence)
+	_, err = file.WriteString(chaincodeVersion)
+
+	if err != nil {
+		log.Fatalf("failed writing to file: %s", err)
+	}
+
+	file1, err := os.Create("test1.txt")
+	if err != nil {
+		log.Fatalf("failed creating file: %s", err)
+	}
+	defer file1.Close()
+
+	str := strconv.Itoa(sequence)
+	len1, err := file1.WriteString(str)
+	_ = len1
+
+	if err != nil {
+		log.Fatalf("failed writing to file: %s", err)
+	}
 
 	input := &ApproveForMyOrgInput{
 		ChannelID:                channelID,
@@ -292,10 +322,6 @@ func (a *ApproverForMyOrg) createInput() (*ApproveForMyOrgInput, error) {
 		WaitForEvent:             waitForEvent,
 		WaitForEventTimeout:      waitForEventTimeout,
 	}
-
-	// logger.Info("================ chaincodeVersion:", chaincodeVersion)
-	// logger.Info("================ input.Version:", input.Version)
-	// logger.Info("================ input.Sequence:", input.Sequence)
 
 	return input, nil
 }

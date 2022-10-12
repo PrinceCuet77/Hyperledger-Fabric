@@ -83,7 +83,6 @@ func PackageCmd(p *Packager) *cobra.Command {
 				}
 			}
 			p.Command = cmd
-			logger.Info("************* args ************:", args)
 
 			return p.PackageChaincode(args)
 		},
@@ -123,12 +122,6 @@ func (p *Packager) setInput(outputFile string) {
 		Type:       chaincodeLang,
 		Label:      packageLabel,
 	}
-	// logger.Info("**************************************")
-	// logger.Info("OutputFile:", outputFile)
-	// logger.Info("Path:", chaincodePath)
-	// logger.Info("Type:", chaincodeLang)
-	// logger.Info("Label:", packageLabel)
-	// logger.Info("**************************************")
 }
 
 // Package packages chaincodes into the package type,

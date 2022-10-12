@@ -59,19 +59,19 @@ func QueryApprovedCmd(a *ApprovedQuerier, cryptoProvider bccsp.BCCSP) *cobra.Com
 					ConnectionProfilePath: connectionProfilePath,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
-
+				
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
 					return err
 				}
-
+				
 				aqInput := &ApprovedQueryInput{
 					ChannelID:    channelID,
 					Name:         chaincodeName,
 					Sequence:     int64(sequence),
 					OutputFormat: output,
 				}
-
+				
 				a = &ApprovedQuerier{
 					Command:        cmd,
 					EndorserClient: cc.EndorserClients[0],

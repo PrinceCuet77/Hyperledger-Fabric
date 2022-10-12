@@ -74,19 +74,16 @@ func GetInstalledPackageCmd(i *InstalledPackageGetter, cryptoProvider bccsp.BCCS
 					TargetPeer:            targetPeer,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
-				logger.Info("ccInput:", ccInput)
 
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
 					return err
 				}
-				logger.Info("cc:", cc)
 
 				gipInput := &GetInstalledPackageInput{
 					PackageID:       packageID,
 					OutputDirectory: outputDirectory,
 				}
-				logger.Info("gipInput:", gipInput)
 
 				// getinstalledpackage only supports one peer connection,
 				// which is why we only wire in the first endorser
@@ -98,7 +95,6 @@ func GetInstalledPackageCmd(i *InstalledPackageGetter, cryptoProvider bccsp.BCCS
 					Signer:         cc.Signer,
 					Writer:         &persistence.FilesystemIO{},
 				}
-				logger.Info("i:", i)
 			}
 			return i.Get()
 		},

@@ -267,6 +267,8 @@ github.com/hyperledger/fabric-protos-go/transientstore
 # github.com/inconshreveable/mousetrap v1.0.0
 ## explicit
 github.com/inconshreveable/mousetrap
+# github.com/joho/godotenv v1.4.0
+## explicit; go 1.12
 # github.com/kr/pretty v0.3.0
 ## explicit; go 1.12
 github.com/kr/pretty

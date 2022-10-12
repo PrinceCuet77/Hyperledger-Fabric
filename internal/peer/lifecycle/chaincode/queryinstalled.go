@@ -47,13 +47,6 @@ func QueryInstalledCmd(i *InstalledQuerier, cryptoProvider bccsp.BCCSP) *cobra.C
 		Long:  "Query the installed chaincodes on a peer.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if i == nil {
-				// logger.Info("-------------------------------- Query Installed File --------------------------")
-				// logger.Info("cryptoProvider: ", cryptoProvider)
-				// logger.Info("Peer Address: ", peerAddresses)
-				// logger.Info("Tls Root Cert Files: ", tlsRootCertFiles)
-				// logger.Info("Connection Profile Path: ", connectionProfilePath)
-				// logger.Info("Target Peer: ", targetPeer)
-				// logger.Info("-------------------------------- end of Query Installed File --------------------------")
 				ccInput := &ClientConnectionsInput{
 					CommandName:           cmd.Name(),
 					EndorserRequired:      true,
@@ -63,25 +56,15 @@ func QueryInstalledCmd(i *InstalledQuerier, cryptoProvider bccsp.BCCSP) *cobra.C
 					TargetPeer:            targetPeer,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
-				// logger.Info("CommandName: ", ccInput.CommandName)
-				// logger.Info("Endorse Required: ", ccInput.EndorserRequired)
-				// logger.Info("Peer Addresses: ", ccInput.PeerAddresses)
-				// logger.Info("TLS Root Cert Files: ", ccInput.TLSRootCertFiles)
-				// logger.Info("Connection Profile Path: ", ccInput.ConnectionProfilePath)
-				// logger.Info("Target Peer: ", ccInput.TargetPeer)
-				// logger.Info("TLS Enabled: ", ccInput.TLSEnabled)
-				// logger.Info("ccInput: ", ccInput)
 
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
 					return err
 				}
-				// logger.Info("cc: ", cc)
 
 				iqInput := &InstalledQueryInput{
 					OutputFormat: output,
 				}
-				// logger.Info("iqInput: ", iqInput)
 
 				// queryinstalled only supports one peer connection,
 				// which is why we only wire in the first endorser
@@ -93,7 +76,6 @@ func QueryInstalledCmd(i *InstalledQuerier, cryptoProvider bccsp.BCCSP) *cobra.C
 					Signer:         cc.Signer,
 					Writer:         os.Stdout,
 				}
-				// logger.Info("i: ", i)
 			}
 			return i.Query()
 		},
@@ -110,60 +92,6 @@ func QueryInstalledCmd(i *InstalledQuerier, cryptoProvider bccsp.BCCSP) *cobra.C
 
 	return chaincodeQueryInstalledCmd
 }
-
-// Author: Prince
-// type QueryCaller interface {
-// 	QueryCall() error
-// }
-
-// type QueryCallStruct struct {
-// 	querycaller QueryCaller
-// }
-
-// func New(querycaller QueryCaller) *QueryCallStruct {
-// 	return &QueryCallStruct{
-// 		querycaller: querycaller,
-// 	}
-// }
-
-// type AB struct {}
-
-// func (querycallstruct *QueryCallStruct) QueryCall() error {
-// func QueryCall() error {
-// 	var cmd *cobra.Command
-// 	ccInput := &ClientConnectionsInput{
-// 		CommandName:           cmd.Name(),
-// 		EndorserRequired:      true,
-// 		PeerAddresses:         peerAddresses,
-// 		TLSRootCertFiles:      tlsRootCertFiles,
-// 		ConnectionProfilePath: connectionProfilePath,
-// 		TargetPeer:            targetPeer,
-// 		TLSEnabled:            viper.GetBool("peer.tls.enabled"),
-// 	}
-
-// 	cryptoProvider := factory.GetDefault()
-// 	cc, err := NewClientConnections(ccInput, cryptoProvider)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	iqInput := &InstalledQueryInput{
-// 		OutputFormat: output,
-// 	}
-
-// 	// queryinstalled only supports one peer connection,
-// 	// which is why we only wire in the first endorser
-// 	// client
-// 	i := &InstalledQuerier{
-// 		Command:        cmd,
-// 		EndorserClient: cc.EndorserClients[0],
-// 		Input:          iqInput,
-// 		Signer:         cc.Signer,
-// 		Writer:         os.Stdout,
-// 	}
-
-// 	return i.Query()
-// }
 
 // Query returns the chaincodes installed on a peer
 func (i *InstalledQuerier) Query() error {
@@ -222,23 +150,23 @@ func (i *InstalledQuerier) printResponse(proposalResponse *pb.ProposalResponse) 
 
 func (i *InstalledQuerier) createProposal() (*pb.Proposal, error) {
 	args := &lb.QueryInstalledChaincodesArgs{}
-
+	
 	argsBytes, err := proto.Marshal(args)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to marshal args")
 	}
-
+	
 	ccInput := &pb.ChaincodeInput{
 		Args: [][]byte{[]byte("QueryInstalledChaincodes"), argsBytes},
 	}
-
+	
 	cis := &pb.ChaincodeInvocationSpec{
 		ChaincodeSpec: &pb.ChaincodeSpec{
 			ChaincodeId: &pb.ChaincodeID{Name: lifecycleName},
 			Input:       ccInput,
 		},
 	}
-
+	
 	signerSerialized, err := i.Signer.Serialize()
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to serialize identity")

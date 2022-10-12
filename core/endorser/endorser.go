@@ -302,15 +302,11 @@ func (e *Endorser) preProcess(up *UnpackedProposal, channel *Channel) error {
 // Errors related to proposal processing (either infrastructure errors or chaincode errors) are returned with a nil error,
 // clients are expected to look at the ProposalResponse response status code (e.g. 500) and message.
 func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedProposal) (*pb.ProposalResponse, error) {
-	logger.Info("Enter Here ----------------------------")
-	logger.Info("Enter Here ---------------------------- ctx:", ctx)
-	logger.Info("Enter Here ---------------------------- signedProp:", signedProp)
 	// start time for computing elapsed time metric for successfully endorsed proposals
 	startTime := time.Now()
 	e.Metrics.ProposalsReceived.Add(1)
 
 	addr := util.ExtractRemoteAddress(ctx)
-	logger.Info("================ addr:", addr)
 	endorserLogger.Debug("request from", addr)
 
 	// variables to capture proposal duration metric
@@ -338,7 +334,6 @@ func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedPro
 	// 0 -- check and validate
 	err = e.preProcess(up, channel)
 	if err != nil {
-		logger.Info("------------------- Here 1 --------------------")
 		endorserLogger.Warnw("Failed to preProcess proposal", "error", err.Error())
 		return &pb.ProposalResponse{Response: &pb.Response{Status: 500, Message: err.Error()}}, err
 	}
@@ -354,7 +349,6 @@ func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedPro
 
 	pResp, err := e.ProcessProposalSuccessfullyOrError(up)
 	if err != nil {
-		logger.Info("------------------- Here 2 --------------------")
 		endorserLogger.Warnw("Failed to invoke chaincode", "channel", up.ChannelHeader.ChannelId, "chaincode", up.ChaincodeName, "error", err.Error())
 		// Return a nil error since clients are expected to look at the ProposalResponse response status code (500) and message.
 		return &pb.ProposalResponse{Response: &pb.Response{Status: 500, Message: err.Error()}}, nil
