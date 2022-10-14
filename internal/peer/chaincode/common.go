@@ -95,8 +95,6 @@ func getChaincodeDeploymentSpec(spec *pb.ChaincodeSpec, crtPkg bool) (*pb.Chainc
 }
 
 var (
-	CcVersion    *string
-	Vers         string
 	newChannelID string
 )
 
@@ -156,7 +154,7 @@ type externalVMAdapter struct {
 }
 
 // Author: Prince
-// ------------------------ Start for Package -----------------------------------
+// ------------------------ 1. Start for Package -----------------------------------
 type PackagerCC struct {
 	Command          *cobra.Command
 	Input            *PackageInputCC
@@ -352,7 +350,7 @@ type PackageMetadata struct {
 	Label string `json:"label"`
 }
 
-// ------------------------ Start for Calculate Package ID ---------------------------
+// ------------------------ 2. Start for Calculate Package ID ---------------------------
 type PackageIDCalculator struct {
 	Command *cobra.Command
 	Input   *CalculatePackageIDInput
@@ -451,7 +449,7 @@ func (p *PackageIDCalculator) setInput(packageFile string) {
 	}
 }
 
-// ------------------------ Start for Query Installed ---------------------------
+// ------------------------ 3. Start for Query Installed ---------------------------
 // Installer holds the dependencies needed to install
 // a chaincode.
 type InstallerCC struct {
@@ -607,7 +605,7 @@ func (i *InstallerCC) createInstallProposal(pkgBytes []byte, creatorBytes []byte
 	return proposal, nil
 }
 
-// ------------------------ Start for Query Installed ---------------------------
+// ------------------------ 4. Start for Query Installed ---------------------------
 type ClientConnectionsInput struct {
 	CommandName           string
 	EndorserRequired      bool
@@ -1018,7 +1016,7 @@ func (i *InstalledQuerier) createProposalForQuery() (*pb.Proposal, error) {
 }
 
 // ------------------------ End for Query Installed ---------------------------
-// ------------------------ Start for Get Query Installed Package ---------------------------
+// ------------------------ 5. Start for Get Query Installed Package ---------------------------
 type GetInstalledPackageInput struct {
 	PackageID       string
 	OutputDirectory string
@@ -1027,7 +1025,6 @@ type GetInstalledPackageInput struct {
 var (
 	packageId       string
 	outputDirectory string
-	versioncc       string
 )
 
 type InstalledPackageGetter struct {
@@ -1441,11 +1438,9 @@ var (
 	signaturePolicy     string
 	channelConfigPolicy string
 	sequence            int
-	sequencecc          int
 	endorsementPlugin   string
 	validationPlugin    string
 	initRequired        bool
-	V                   string
 )
 
 // createInput creates the input struct based on the CLI flags
@@ -1481,13 +1476,11 @@ func (a *ApproverForMyOrg) createInput() (*ApproveForMyOrgInput, error) {
 
 	input := &ApproveForMyOrgInput{
 		// ChannelID: channelID,
-		ChannelID: newChannelID,
-		Name:      chaincodeName,
-		Version:   chaincodeVersion,
-		// Version:   versioncc,
-		PackageID: packageId,
-		Sequence:  int64(sequence),
-		// Sequence:                 int64(sequencecc),
+		ChannelID:                newChannelID,
+		Name:                     chaincodeName,
+		Version:                  chaincodeVersion,
+		PackageID:                packageId,
+		Sequence:                 int64(sequence),
 		EndorsementPlugin:        endorsementPlugin,
 		ValidationPlugin:         validationPlugin,
 		ValidationParameterBytes: policyBytes,
@@ -1550,7 +1543,7 @@ func createPolicyBytes(signaturePolicy, channelConfigPolicy string) ([]byte, err
 	return policyBytes, nil
 }
 
-// -------------------------------------------- query approved --------------------------------
+// -------------------------------------------- 6. query approved --------------------------------
 type ApprovedQuerier struct {
 	Command        *cobra.Command
 	EndorserClient EndorserClient
@@ -1719,7 +1712,7 @@ func (a *ApprovedQuerier) createProposal() (*pb.Proposal, error) {
 	return proposal, nil
 }
 
-// ----------------------------------------- commit ---------------------------------------------
+// ----------------------------------------- 7. commit ---------------------------------------------
 // Committer holds the dependencies needed to commit
 // a chaincode
 type Committer struct {
@@ -1981,7 +1974,7 @@ func (c *Committer) createInput() (*CommitInput, error) {
 	return input, nil
 }
 
-// ------------------------------------------- Query Committed -----------------------------
+// ------------------------------------------- 8. Query Committed -----------------------------
 type CommittedQuerier struct {
 	Command        *cobra.Command
 	Input          *CommittedQueryInput
@@ -2251,7 +2244,6 @@ func CustomChannelCreation(channelID string) {
 	peerAddresses = append(peerAddresses, "localhost:7051")
 	tlsRootCertFiles = append(tlsRootCertFiles, "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt")
 
-
 	err := Package(nil)
 	if err != nil {
 		logger.Info("Package status - Not nil", err)
@@ -2334,8 +2326,6 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 		invokeChannelID := channelID
 
 		if channelID == "customchannel" {
-			// logger.Info("All Environment variable prev: -------------------------", os.Environ())
-
 			// Retrieve the current channelID
 			queryCurrentChannelFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/queryCurrentChannel.sh"
 			cmdForQueryCurrentChannel, err := exec.Command(queryCurrentChannelFilePath).Output()
@@ -2404,41 +2394,7 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 				output1 := string(cmdForInvokeCC)
 				logger.Info(output1) // Print logs in the terminal
 
-				// Invoke
-				spec, err := getChaincodeSpec(cmd)
-				if err != nil {
-					return err
-				}
-				logger.Info("spec:", spec)
-
-				str := ""
-				if string(spec.Input.Args[0][:]) == "InitLedger" {
-					str += ""
-					logger.Info("=== InitLedger ===")
-				} else {
-					str += "\""
-
-					for i := 1; i < len(spec.Input.Args); i++ {
-						str += string(spec.Input.Args[i][:])
-						if i < len(spec.Input.Args)-1 {
-							str += "\",\""
-						} else {
-							str += "\""
-						}
-					}
-				}
-				logger.Info(str)
-
-				// Invoke for the first time of new channel
-				invokeForNCFilePath := "/home/prince-11209/Desktop/Fabric/RnD-Task/fabric-samples/test-network/scripts/invokefornewchannel.sh"
-				cmdForInvokeNCCC, err := exec.Command(invokeForNCFilePath, invokeChannelID, string(spec.Input.Args[0]), str).Output()
-				if err != nil {
-					logger.Info("2. error %s", err)
-				} else {
-					logger.Infof("Chaincode invoke successful. result: status:200")
-				}
-				output1 = string(cmdForInvokeNCCC)
-				logger.Info(output1) // Print logs in the terminal
+				logger.Info("New channel", invokeChannelID, "is created and chaincode basic is installed")
 			} else {
 				spec, err := getChaincodeSpec(cmd)
 				if err != nil {
@@ -2505,6 +2461,7 @@ func chaincodeInvokeOrQuery(cmd *cobra.Command, invoke bool, cf *ChaincodeCmdFac
 
 			logger.Debugf("ESCC invoke result: %v", proposalResp)
 			pRespPayload, err := protoutil.UnmarshalProposalResponsePayload(proposalResp.Payload)
+
 			if err != nil {
 				return errors.WithMessage(err, "error while unmarshalling proposal response payload")
 			}
@@ -2948,11 +2905,13 @@ func ChaincodeInvokeOrQuery(
 ) (*pb.ProposalResponse, error) {
 	// Build the ChaincodeInvocationSpec message
 	invocation := &pb.ChaincodeInvocationSpec{ChaincodeSpec: spec}
+	// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> invocation:", invocation)
 
 	creator, err := signer.Serialize()
 	if err != nil {
 		return nil, errors.WithMessage(err, "error serializing identity")
 	}
+	// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> creator:", creator)
 
 	funcName := "invoke"
 	if !invoke {
@@ -2971,16 +2930,19 @@ func ChaincodeInvokeOrQuery(
 	if err != nil {
 		return nil, errors.WithMessagef(err, "error creating proposal for %s", funcName)
 	}
+	// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> prop:", prop)
 
 	signedProp, err := protoutil.GetSignedProposal(prop, signer)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "error creating signed proposal for %s", funcName)
 	}
+	// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> signedProp:", signedProp)
 
 	responses, err := processProposals(endorserClients, signedProp)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "error endorsing %s", funcName)
 	}
+	// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> responses:", responses)
 
 	if len(responses) == 0 {
 		// this should only happen if some new code has introduced a bug
@@ -2992,12 +2954,14 @@ func ChaincodeInvokeOrQuery(
 
 	if invoke {
 		if proposalResp != nil {
+			// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> proposalResp:", proposalResp)
 			if proposalResp.Response.Status >= shim.ERRORTHRESHOLD {
 				return proposalResp, nil
 			}
 
 			// assemble a signed transaction (it's an Envelope message)
 			env, err := protoutil.CreateSignedTx(prop, signer, responses...)
+			// logger.Info(">>>>>>>>>>>>>>>>>>>>>>> env:", env)
 			if err != nil {
 				return proposalResp, errors.WithMessage(err, "could not assemble transaction")
 			}

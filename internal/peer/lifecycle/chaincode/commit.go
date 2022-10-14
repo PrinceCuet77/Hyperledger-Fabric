@@ -91,7 +91,6 @@ func CommitCmd(c *Committer, cryptoProvider bccsp.BCCSP) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				logger.Info("****************** input(commit):", input)
 
 				ccInput := &ClientConnectionsInput{
 					CommandName:           cmd.Name(),
@@ -103,19 +102,16 @@ func CommitCmd(c *Committer, cryptoProvider bccsp.BCCSP) *cobra.Command {
 					ConnectionProfilePath: connectionProfilePath,
 					TLSEnabled:            viper.GetBool("peer.tls.enabled"),
 				}
-				logger.Info("****************** ccInput(commit):", ccInput)
 
 				cc, err := NewClientConnections(ccInput, cryptoProvider)
 				if err != nil {
 					return err
 				}
-				logger.Info("****************** cc(commit):", cc)
 
 				endorserClients := make([]EndorserClient, len(cc.EndorserClients))
 				for i, e := range cc.EndorserClients {
 					endorserClients[i] = e
 				}
-				logger.Info("****************** endorserClients(commit):", endorserClients)
 
 				c = &Committer{
 					Command:         cmd,
@@ -126,7 +122,6 @@ func CommitCmd(c *Committer, cryptoProvider bccsp.BCCSP) *cobra.Command {
 					EndorserClients: endorserClients,
 					Signer:          cc.Signer,
 				}
-				logger.Info("****************** c(commit):", c)
 			}
 			return c.Commit()
 		},
@@ -252,13 +247,11 @@ func (c *Committer) createInput() (*CommitInput, error) {
 	if err != nil {
 		return nil, err
 	}
-	// logger.Info("***************** policyBytes(commit):", policyBytes)
 
 	ccp, err := createCollectionConfigPackage(collectionsConfigFile)
 	if err != nil {
 		return nil, err
 	}
-	// logger.Info("***************** ccp(commit):", ccp)
 
 	input := &CommitInput{
 		ChannelID:                channelID,
@@ -274,7 +267,6 @@ func (c *Committer) createInput() (*CommitInput, error) {
 		WaitForEvent:             waitForEvent,
 		WaitForEventTimeout:      waitForEventTimeout,
 	}
-	// logger.Info("***************** input(commit):", input)
 
 	return input, nil
 }
@@ -290,15 +282,12 @@ func (c *Committer) createProposal(inputTxID string) (proposal *pb.Proposal, txI
 		InitRequired:        c.Input.InitRequired,
 		Collections:         c.Input.CollectionConfigPackage,
 	}
-	// logger.Info("***************** args(commit):", args)
 
 	argsBytes, err := proto.Marshal(args)
 	if err != nil {
 		return nil, "", err
 	}
-	// logger.Info("***************** argsBytes(commit):", argsBytes)
 	ccInput := &pb.ChaincodeInput{Args: [][]byte{[]byte(commitFuncName), argsBytes}}
-	// logger.Info("***************** ccInput(commit):", ccInput)
 
 	cis := &pb.ChaincodeInvocationSpec{
 		ChaincodeSpec: &pb.ChaincodeSpec{
@@ -306,7 +295,6 @@ func (c *Committer) createProposal(inputTxID string) (proposal *pb.Proposal, txI
 			Input:       ccInput,
 		},
 	}
-	// logger.Info("***************** cis(commit):", cis)
 
 	creatorBytes, err := c.Signer.Serialize()
 	if err != nil {
